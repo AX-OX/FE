@@ -35,8 +35,10 @@ export function getDocument(documentId: number): Promise<DocumentDetail> {
 
 export interface StreamHandlers {
   onEvent: (event: TaskEvent) => void
-  /** 끊겼다가 다시 연결됨 → 호출 측에서 `getTask`로 상태를 다시 맞춘다 */
-  onReconnect: () => void
+  /** 연결될 때마다(첫 연결 포함) → 호출 측에서 `getTask`로 상태를 맞춘다 */
+  onConnect: (reconnected: boolean) => void
+  /** 서버가 스트림을 닫음 → 진행 중이면 true (다시 연결) */
+  onClose: () => Promise<boolean>
   /** 재연결도 실패해 스트림을 포기했을 때 */
   onError: (status?: number) => void
 }
@@ -56,7 +58,8 @@ export function subscribeTaskEvents(taskId: string, handlers: StreamHandlers): (
         // 형식이 깨진 이벤트는 무시
       }
     },
-    onReconnect: handlers.onReconnect,
+    onConnect: handlers.onConnect,
+    onClose: handlers.onClose,
     onError: handlers.onError,
   })
 }

@@ -15,8 +15,14 @@ const IDLE_TIMEOUT_MS = 45_000
 export interface SseHandlers {
   /** `data:` 한 건 (여러 줄이면 \n으로 이어 붙인 값) */
   onMessage: (data: string) => void
-  /** 끊긴 뒤 다시 연결됐을 때. 그사이 놓친 이벤트는 상태 조회로 메워야 한다 */
-  onReconnect: () => void
+  /**
+   * 연결될 때마다(첫 연결 포함). 이벤트 재생이 없으므로 호출 측이 상태 조회로 놓친 부분을 메운다.
+   */
+  onConnect: (reconnected: boolean) => void
+  /**
+   * 서버가 스트림을 정상 종료했을 때. true를 돌려주면(아직 진행 중) 잠시 뒤 다시 연결한다.
+   */
+  onClose: () => Promise<boolean>
   /** 재시도를 다 쓰거나 인증·권한 오류로 더 시도하지 않을 때 */
   onError: (status?: number) => void
 }
@@ -66,18 +72,22 @@ export function openSse(path: string, handlers: SseHandlers): () => void {
       return retry()
     }
 
-    if (connectedOnce) handlers.onReconnect()
+    handlers.onConnect(connectedOnce)
     connectedOnce = true
     attempt = 0
 
+    let closedByServer = false
     try {
       await readEvents(res.body, bumpIdle)
+      closedByServer = true
     } catch {
       // 읽는 도중 끊김·idle 초과 → 아래에서 재연결
     } finally {
       window.clearTimeout(idleTimer)
     }
-    // 서버가 스트림을 닫았거나 끊겼다. 우리가 끊은 게 아니면 다시 붙는다
+    if (controller.signal.aborted) return
+    // 정상 종료(DONE·FAILED·REJECTED 후 서버가 닫음)면 상태를 확인하고 진행 중일 때만 다시 붙는다
+    if (closedByServer && !(await handlers.onClose())) return
     retry()
   }
 
