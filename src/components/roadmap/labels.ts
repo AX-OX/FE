@@ -35,6 +35,7 @@ export const SOLUTION_LABEL: Record<string, string> = {
 /** §7 `warnings` 코드 */
 export const WARNING_LABEL: Record<string, string> = {
   LOW_STANDARDIZATION: '표준화 낮음',
+  INSUFFICIENT_METRICS: '지표 부족',
 }
 
 /** §7 portfolio.greedyTop3.violations */

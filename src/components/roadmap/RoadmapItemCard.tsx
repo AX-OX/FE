@@ -23,7 +23,7 @@ const ROWS: { key: keyof ScenarioMetrics; label: string; format: (m: ScenarioMet
 
 export function RoadmapItemCard({ item, candidate, dependsOn }: RoadmapItemCardProps) {
   // 로드맵 항목에는 부서명·솔루션 유형이 없어서 같은 후보에서 가져온다
-  const solution = candidate ? (SOLUTION_LABEL[candidate.solutionType] ?? candidate.solutionType) : undefined
+  const solution = candidate?.solutionType ? (SOLUTION_LABEL[candidate.solutionType] ?? candidate.solutionType) : undefined
   // 후보 스냅샷이 아직 없으면 로드맵 항목의 기준 시나리오 값만 보여준다
   const base: ScenarioMetrics = {
     annualSavingKrw: item.expectedAnnualSavingKrw,
