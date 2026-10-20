@@ -1,4 +1,4 @@
-import type { ApprovalRequest, DocumentDetail, TaskDetail, TaskEvent } from '@/types/task'
+import type { ApprovalRequest, DocumentDetail, TaskDetail, TaskEvent, TaskSummary } from '@/types/task'
 import { request, USE_MOCK } from './client'
 import * as mock from './mock/taskMock'
 import { openSse } from './sse'
@@ -13,6 +13,12 @@ export function createTask(requestText: string): Promise<{ taskId: string }> {
 export function getTask(taskId: string): Promise<TaskDetail> {
   if (USE_MOCK) return mock.getTask(taskId)
   return request(`/api/ai/tasks/${taskId}`)
+}
+
+/** `GET /api/ai/tasks?mine=true` — 내 작업 이력 (최신순) */
+export function listMyTasks(): Promise<TaskSummary[]> {
+  if (USE_MOCK) return mock.listMyTasks()
+  return request('/api/ai/tasks?mine=true')
 }
 
 /** `POST /api/ai/tasks/{taskId}/approval` → 202 (작업 요청자 본인만) */
@@ -40,7 +46,7 @@ export interface StreamHandlers {
  * 반환값을 호출하면 구독을 끊는다.
  */
 export function subscribeTaskEvents(taskId: string, handlers: StreamHandlers): () => void {
-  if (USE_MOCK) return mock.subscribe(taskId, handlers.onEvent)
+  if (USE_MOCK) return mock.subscribe(taskId, handlers.onEvent, handlers.onError)
 
   return openSse(`/api/ai/tasks/${taskId}/stream`, {
     onMessage: (data) => {

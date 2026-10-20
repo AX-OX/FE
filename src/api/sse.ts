@@ -61,7 +61,7 @@ export function openSse(path: string, handlers: SseHandlers): () => void {
 
     if (!res.ok || !res.body) {
       window.clearTimeout(idleTimer)
-      if (res.status === 401) useAuthStore.getState().logout()
+      if (res.status === 401) useAuthStore.getState().logout('expired')
       if (FATAL_STATUS.has(res.status)) return handlers.onError(res.status)
       return retry()
     }

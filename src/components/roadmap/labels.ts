@@ -1,11 +1,11 @@
-import type { AgentNode, MaturityArea, Phase, Scenario } from '@/types/task'
+import type { AgentNode, DataConfidence, MaturityArea, Phase, Scenario } from '@/types/task'
 
 export const NODE_LABEL: Record<AgentNode, string> = {
   collect: '업무 데이터 수집',
   retrieve: '근거 문서 검색',
   assess: 'AX 성숙도 진단',
   discover: '후보 과제 발굴',
-  evaluate: 'ROI·예산 조합 평가',
+  evaluate: 'AX점수 계산·예산 조합 탐색',
   roadmap: '로드맵 작성',
   approval: '승인 대기',
   register: '로드맵·프로젝트 등록',
@@ -31,3 +31,23 @@ export const SOLUTION_LABEL: Record<string, string> = {
   CLASSIFICATION: '분류',
   RPA: 'RPA',
 }
+
+/** §7 `warnings` 코드 */
+export const WARNING_LABEL: Record<string, string> = {
+  LOW_STANDARDIZATION: '표준화 낮음',
+}
+
+/** §7 portfolio.greedyTop3.violations */
+export const VIOLATION_LABEL: Record<string, string> = {
+  BUDGET_EXCEEDED: '예산 초과',
+  MISSING_DEPENDENCY: '선행 과제 누락',
+}
+
+/** 데이터 신뢰도 — 점수에 넣지 않고 표시만 한다 */
+export const DATA_CONFIDENCE_LABEL: Record<DataConfidence, string> = {
+  MEASURED: '실측',
+  SURVEY: '설문',
+  ASSUMED: '가정',
+}
+
+export const ROI_HELP = '초기 구축비가 반영돼 첫해에는 음수가 흔합니다. 회수 기간과 3년 순편익을 함께 보세요.'

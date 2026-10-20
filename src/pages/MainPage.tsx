@@ -1,3 +1,4 @@
+import { Link } from 'react-router'
 import { ChatInput } from '@/components/chat/ChatInput'
 import { DocumentPanel } from '@/components/chat/DocumentPanel'
 import { MessageList } from '@/components/chat/MessageList'
@@ -16,8 +17,8 @@ export function MainPage() {
   const lastTurn = turns[turns.length - 1]
   const empty = turns.length === 0
 
+  // 대화·SSE 정리는 chatStore가, 로그인 화면 이동은 RequireAuth가 한다
   function handleLogout() {
-    reset()
     logout()
   }
 
@@ -38,6 +39,9 @@ export function MainPage() {
               새 대화
             </button>
           )}
+          <Link to="/tasks" className="font-semibold text-ink hover:underline">
+            작업 이력
+          </Link>
           <span className="hidden sm:inline">{user?.name}님</span>
           <button type="button" onClick={handleLogout} className="font-semibold text-ink hover:underline">
             로그아웃

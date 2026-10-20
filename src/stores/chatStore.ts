@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { ApiError } from '@/api/client'
+import { useAuthStore } from '@/stores/authStore'
 import { createTask, getTask, submitApproval, subscribeTaskEvents } from '@/api/tasks'
-import type { AgentNode, ApprovalRequest, ApprovalRequiredData, TaskDetail, TaskEvent, TaskResult, TaskStatus } from '@/types/task'
+import type { AgentNode, ApprovalRequest, ApprovalRequiredData, TaskDetail, TaskEvent, TaskResult, TaskStatus, TaskSummary } from '@/types/task'
 
 export const NODE_ORDER: AgentNode[] = ['collect', 'retrieve', 'assess', 'discover', 'evaluate', 'roadmap', 'approval', 'register']
 
@@ -30,6 +31,8 @@ export interface Turn {
   approvalPending: boolean
   approvalError?: string
   error?: { message: string; traceUrl?: string }
+  /** 작업 이력에서 불러온 턴 (진행 과정·답변 텍스트는 남아 있지 않다) */
+  restored?: boolean
 }
 
 interface ChatState {
@@ -37,11 +40,15 @@ interface ChatState {
   openDocumentId: number | null
   send: (text: string) => Promise<void>
   decide: (turnId: string, decision: ApprovalRequest) => Promise<void>
+  /** 작업 이력의 작업을 대화에 다시 불러온다. 진행 중이면 스트림을 다시 구독한다 */
+  restore: (task: TaskSummary) => Promise<void>
   openDocument: (documentId: number | null) => void
   reset: () => void
 }
 
 const unsubscribers = new Map<string, () => void>()
+
+const LIVE_STATUS: TaskStatus[] = ['QUEUED', 'RUNNING', 'WAITING_APPROVAL']
 
 function stopStream(turnId: string) {
   unsubscribers.get(turnId)?.()
@@ -122,7 +129,7 @@ export const useChatStore = create<ChatState>()((set, get) => {
   const update = (turnId: string, fn: (t: Turn) => Turn) =>
     set((s) => ({ turns: s.turns.map((t) => (t.id === turnId ? fn(t) : t)) }))
 
-  /** 승인 카드가 뜨면 성숙도·후보 ROI가 담긴 result 스냅샷을 가져온다 */
+  /** 승인 카드가 뜨면 성숙도·후보 AX점수·포트폴리오가 담긴 result 스냅샷을 가져온다 */
   async function loadSnapshot(turnId: string, taskId: string) {
     try {
       const detail = await getTask(taskId)
@@ -132,18 +139,28 @@ export const useChatStore = create<ChatState>()((set, get) => {
     }
   }
 
-  /** 재연결 후 서버 상태로 다시 맞춘다 (끊긴 사이 DONE·APPROVAL_REQUIRED 등을 놓쳤을 수 있음) */
-  async function resync(turnId: string, taskId: string) {
+  /**
+   * 서버 상태로 다시 맞춘다. 재연결 후(끊긴 사이 DONE·APPROVAL_REQUIRED 등을 놓쳤을 수 있음)와 이력 복원에 쓴다.
+   * reportError면 조회 실패를 턴에 FAILED로 표시한다.
+   */
+  async function resync(turnId: string, taskId: string, reportError = false): Promise<TaskStatus | undefined> {
     let detail: TaskDetail
     try {
       detail = await getTask(taskId)
-    } catch {
-      return
+    } catch (err) {
+      if (reportError) {
+        const message = err instanceof ApiError ? err.message : '작업을 불러오지 못했습니다.'
+        update(turnId, (t) => ({ ...t, status: 'FAILED', error: { message } }))
+      }
+      return undefined
     }
     if (detail.status === 'DONE' || detail.status === 'FAILED' || detail.status === 'REJECTED') stopStream(turnId)
 
-    update(turnId, (t) => {
-      const result = detail.result ? { ...t.result, ...detail.result } : t.result
+    update(turnId, (current) => {
+      const result = detail.result ? { ...current.result, ...detail.result } : current.result
+      // 끊긴 사이 다른 곳에서 승인·거절했으면 서버 기록(result.approval)으로 맞춘다
+      const recorded = result?.approval
+      const t: Turn = current.decision || !recorded ? current : { ...current, decision: { decision: recorded.decision, reason: recorded.reason ?? undefined } }
       switch (detail.status) {
         case 'DONE':
           return { ...t, status: 'DONE', result, currentLabel: undefined, nodes: allDone() }
@@ -164,9 +181,38 @@ export const useChatStore = create<ChatState>()((set, get) => {
           }
         }
         default:
-          return { ...t, result }
+          return { ...t, status: detail.status, result }
       }
     })
+    return detail.status
+  }
+
+  /** `GET /stream` 구독. 끊기면 sse.ts가 재연결하고, 붙으면 resync로 놓친 상태를 메운다 */
+  function listen(turnId: string, taskId: string) {
+    stopStream(turnId)
+    // 응답을 기다리는 사이 로그아웃·새 대화로 턴이 사라졌으면 구독하지 않는다
+    if (!get().turns.some((t) => t.id === turnId)) return
+    const unsubscribe = subscribeTaskEvents(taskId, {
+      onEvent: (event) => {
+        update(turnId, (t) => reduce(t, event))
+        if (event.type === 'APPROVAL_REQUIRED') void loadSnapshot(turnId, taskId)
+        if (event.type === 'DONE' || event.type === 'FAILED') stopStream(turnId)
+      },
+      onReconnect: () => void resync(turnId, taskId),
+      onError: (status) => {
+        stopStream(turnId)
+        const message =
+          status === 403
+            ? '작업을 요청한 본인만 볼 수 있어요.'
+            : status === 404
+              ? '작업을 찾을 수 없습니다.'
+              : status === 401
+                ? '로그인이 만료되었습니다. 다시 로그인해 주세요.'
+                : '진행 상황 연결이 끊어졌습니다. 잠시 후 다시 시도해 주세요.'
+        update(turnId, (t) => (t.status === 'DONE' || t.status === 'REJECTED' ? t : { ...t, status: 'FAILED', error: { message } }))
+      },
+    })
+    unsubscribers.set(turnId, unsubscribe)
   }
 
   return {
@@ -187,25 +233,7 @@ export const useChatStore = create<ChatState>()((set, get) => {
       try {
         const { taskId } = await createTask(requestText)
         update(turnId, (t) => ({ ...t, taskId }))
-        const unsubscribe = subscribeTaskEvents(taskId, {
-          onEvent: (event) => {
-            update(turnId, (t) => reduce(t, event))
-            if (event.type === 'APPROVAL_REQUIRED') void loadSnapshot(turnId, taskId)
-            if (event.type === 'DONE' || event.type === 'FAILED') stopStream(turnId)
-          },
-          onReconnect: () => void resync(turnId, taskId),
-          onError: (status) => {
-            stopStream(turnId)
-            const message =
-              status === 403 || status === 404
-                ? '이 작업의 진행 상황을 볼 권한이 없습니다.'
-                : status === 401
-                  ? '로그인이 만료되었습니다. 다시 로그인해 주세요.'
-                  : '진행 상황 연결이 끊어졌습니다. 잠시 후 다시 시도해 주세요.'
-            update(turnId, (t) => (t.status === 'DONE' || t.status === 'REJECTED' ? t : { ...t, status: 'FAILED', error: { message } }))
-          },
-        })
-        unsubscribers.set(turnId, unsubscribe)
+        listen(turnId, taskId)
       } catch (err) {
         update(turnId, (t) => ({
           ...t,
@@ -239,9 +267,28 @@ export const useChatStore = create<ChatState>()((set, get) => {
         update(turnId, (t) => ({
           ...t,
           approvalPending: false,
-          approvalError: err instanceof ApiError ? err.message : '처리하지 못했습니다. 다시 시도해 주세요.',
+          approvalError:
+            err instanceof ApiError && err.status === 403
+              ? '작업을 요청한 본인만 승인할 수 있어요.'
+              : err instanceof ApiError
+                ? err.message
+                : '처리하지 못했습니다. 다시 시도해 주세요.',
         }))
       }
+    },
+
+    async restore({ taskId, requestText }) {
+      // 이미 대화에 있는 작업이면 그대로 둔다
+      if (get().turns.some((t) => t.taskId === taskId)) return
+      const turnId = crypto.randomUUID()
+      set((s) => ({
+        turns: [
+          ...s.turns,
+          { id: turnId, requestText, taskId, status: 'QUEUED', nodes: initialNodes(), tools: [], text: '', approvalPending: false, restored: true },
+        ],
+      }))
+      const status = await resync(turnId, taskId, true)
+      if (status && LIVE_STATUS.includes(status)) listen(turnId, taskId)
     },
 
     openDocument(documentId) {
@@ -254,6 +301,11 @@ export const useChatStore = create<ChatState>()((set, get) => {
       set({ turns: [], openDocumentId: null })
     },
   }
+})
+
+// 세션이 끝나면(로그아웃·401) SSE를 모두 끊고 대화·열린 문서를 비운다
+useAuthStore.subscribe((state, prev) => {
+  if (prev.accessToken && !state.accessToken) useChatStore.getState().reset()
 })
 
 export const isBusy = (turn?: Turn) => !!turn && (turn.status === 'QUEUED' || turn.status === 'RUNNING' || turn.status === 'WAITING_APPROVAL')
