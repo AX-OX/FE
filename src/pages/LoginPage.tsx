@@ -12,6 +12,8 @@ import { useAuthStore } from '@/stores/authStore'
 interface LoginLocationState {
   from?: string
   signupEmail?: string
+  /** API·SSE 401로 세션이 끝나 돌아온 경우 */
+  expired?: boolean
 }
 
 export function LoginPage() {
@@ -52,6 +54,7 @@ export function LoginPage() {
     <AuthLayout title="AX Navigator AI" subtitle="업무 데이터로 AI 전환 과제를 찾고, AX점수로 로드맵을 만드세요">
       <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
         {state.signupEmail && !formError && <FormAlert tone="success">회원가입이 완료되었습니다. 로그인해 주세요.</FormAlert>}
+        {state.expired && !formError && <FormAlert tone="info">로그인이 만료되었습니다. 다시 로그인해 주세요.</FormAlert>}
         {formError && <FormAlert tone="error">{formError}</FormAlert>}
 
         <TextField

@@ -21,12 +21,19 @@ Mock 시연 계정: `demo@ax-navigator.com` / `demo1234!`
 | `/` | 메인 (채팅 + AX 투자 로드맵) | 로그인 필요 |
 | `/tasks` | 작업 이력 (누르면 메인 대화로 불러오고, 진행 중·승인 대기면 스트림 재구독) | 로그인 필요 |
 
+## 인증·로그아웃
+
+- 로그인 응답의 `accessToken`을 `authStore`에 저장하고(localStorage `ax-auth`), 모든 `/api/**`와 SSE에 `Authorization: Bearer` 헤더로 보낸다.
+- 로그아웃 API는 없다 (JWT). 로그아웃 버튼을 누르면 토큰, 사용자, 저장된 로그인 정보를 지우고, SSE 연결을 모두 끊고, 대화와 문서 패널을 비운 뒤 로그인 화면으로 이동한다.
+- API나 SSE가 401을 받으면 같은 방식으로 세션을 끝내고 "로그인이 만료되었습니다" 안내와 함께 로그인 화면으로 보낸다. 다시 로그인하면 원래 화면으로 돌아간다.
+- 로그인 없이 보호 페이지(`/`, `/tasks`)에 들어오면 로그인 화면으로 보내고, 로그인 후 원래 화면으로 돌려보낸다.
+
 ## 구조
 
 ```
 src/
 ├── api/          # fetch 래퍼(client.ts), 인증(auth.ts), 작업·SSE·승인·문서(tasks.ts), mock/
-├── stores/       # zustand — authStore(토큰·사용자), chatStore(SSE 이벤트 → 대화 상태)
+├── stores/       # zustand — authStore(토큰·사용자, 로그아웃), chatStore(SSE 이벤트 → 대화 상태, 세션 종료 시 정리)
 ├── types/        # §8 계약 타입 (task.ts)
 ├── components/
 │   ├── chat/     # ChatInput, Suggestions, ProgressSteps, ApprovalCard, DocumentPanel …

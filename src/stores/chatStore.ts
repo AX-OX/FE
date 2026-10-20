@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { ApiError } from '@/api/client'
+import { useAuthStore } from '@/stores/authStore'
 import { createTask, getTask, submitApproval, subscribeTaskEvents } from '@/api/tasks'
 import type { AgentNode, ApprovalRequest, ApprovalRequiredData, TaskDetail, TaskEvent, TaskResult, TaskStatus, TaskSummary } from '@/types/task'
 
@@ -189,6 +190,8 @@ export const useChatStore = create<ChatState>()((set, get) => {
   /** `GET /stream` 구독. 끊기면 sse.ts가 재연결하고, 붙으면 resync로 놓친 상태를 메운다 */
   function listen(turnId: string, taskId: string) {
     stopStream(turnId)
+    // 응답을 기다리는 사이 로그아웃·새 대화로 턴이 사라졌으면 구독하지 않는다
+    if (!get().turns.some((t) => t.id === turnId)) return
     const unsubscribe = subscribeTaskEvents(taskId, {
       onEvent: (event) => {
         update(turnId, (t) => reduce(t, event))
@@ -298,6 +301,11 @@ export const useChatStore = create<ChatState>()((set, get) => {
       set({ turns: [], openDocumentId: null })
     },
   }
+})
+
+// 세션이 끝나면(로그아웃·401) SSE를 모두 끊고 대화·열린 문서를 비운다
+useAuthStore.subscribe((state, prev) => {
+  if (prev.accessToken && !state.accessToken) useChatStore.getState().reset()
 })
 
 export const isBusy = (turn?: Turn) => !!turn && (turn.status === 'QUEUED' || turn.status === 'RUNNING' || turn.status === 'WAITING_APPROVAL')

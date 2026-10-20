@@ -17,8 +17,8 @@ export function MainPage() {
   const lastTurn = turns[turns.length - 1]
   const empty = turns.length === 0
 
+  // 대화·SSE 정리는 chatStore가, 로그인 화면 이동은 RequireAuth가 한다
   function handleLogout() {
-    reset()
     logout()
   }
 
