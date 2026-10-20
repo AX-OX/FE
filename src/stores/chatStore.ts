@@ -49,6 +49,17 @@ interface ChatState {
 const unsubscribers = new Map<string, () => void>()
 
 const LIVE_STATUS: TaskStatus[] = ['QUEUED', 'RUNNING', 'WAITING_APPROVAL']
+const FINAL_STATUS: TaskStatus[] = ['DONE', 'FAILED', 'REJECTED']
+
+/**
+ * 상세 조회 응답이 이벤트보다 늦게 도착하면 이미 지난 상태를 돌려줄 수 있다.
+ * (예: APPROVAL_REQUIRED를 받은 뒤 RUNNING 응답) 이런 경우 화면 상태를 되돌리지 않는다.
+ */
+function isStale(turn: Turn, server: TaskStatus) {
+  if (FINAL_STATUS.includes(turn.status)) return true
+  if (turn.status === 'WAITING_APPROVAL') return turn.decision?.decision !== 'APPROVE'
+  return turn.status === 'RUNNING' && server === 'QUEUED'
+}
 
 function stopStream(turnId: string) {
   unsubscribers.get(turnId)?.()
@@ -140,10 +151,16 @@ export const useChatStore = create<ChatState>()((set, get) => {
   }
 
   /**
-   * 서버 상태로 다시 맞춘다. 재연결 후(끊긴 사이 DONE·APPROVAL_REQUIRED 등을 놓쳤을 수 있음)와 이력 복원에 쓴다.
-   * reportError면 조회 실패를 턴에 FAILED로 표시한다.
+   * 서버 상태로 다시 맞춘다. 연결 직후·스트림 종료·DONE/FAILED·승인 후, 이력 복원에 쓴다.
+   * (이벤트 재생이 없어서 끊긴 사이 놓친 DONE·APPROVAL_REQUIRED 등을 상세 조회로 메운다)
+   * reportError: 조회 실패를 턴에 FAILED로 표시한다.
+   * force: 화면 상태가 틀렸다는 걸 아는 경우(승인 409 등) 서버 상태를 그대로 따른다.
    */
-  async function resync(turnId: string, taskId: string, reportError = false): Promise<TaskStatus | undefined> {
+  async function resync(
+    turnId: string,
+    taskId: string,
+    { reportError = false, force = false }: { reportError?: boolean; force?: boolean } = {},
+  ): Promise<TaskStatus | undefined> {
     let detail: TaskDetail
     try {
       detail = await getTask(taskId)
@@ -165,12 +182,19 @@ export const useChatStore = create<ChatState>()((set, get) => {
         case 'DONE':
           return { ...t, status: 'DONE', result, currentLabel: undefined, nodes: allDone() }
         case 'FAILED':
-          return { ...t, status: 'FAILED', result, currentLabel: undefined, error: { message: '작업이 실패했습니다.', traceUrl: detail.traceUrl ?? undefined } }
+          return {
+            ...t,
+            status: 'FAILED',
+            result,
+            currentLabel: undefined,
+            // FAILED 이벤트로 받은 메시지가 있으면 유지한다
+            error: { message: t.error?.message ?? '작업이 실패했습니다.', traceUrl: t.error?.traceUrl ?? detail.traceUrl ?? undefined },
+          }
         case 'REJECTED':
           return { ...t, status: 'REJECTED', result, currentLabel: undefined }
         case 'WAITING_APPROVAL': {
           const roadmap = result?.roadmap
-          if (t.approval || !roadmap) return { ...t, result }
+          if ((t.approval && !force) || !roadmap) return { ...t, result, ...(force ? { status: 'WAITING_APPROVAL' as const } : {}) }
           return {
             ...t,
             result,
@@ -181,13 +205,13 @@ export const useChatStore = create<ChatState>()((set, get) => {
           }
         }
         default:
-          return { ...t, status: detail.status, result }
+          return isStale(t, detail.status) && !force ? { ...t, result } : { ...t, status: detail.status, result }
       }
     })
     return detail.status
   }
 
-  /** `GET /stream` 구독. 끊기면 sse.ts가 재연결하고, 붙으면 resync로 놓친 상태를 메운다 */
+  /** `GET /stream` 구독. 연결될 때마다 resync로 상태를 맞추고, 끊기면 sse.ts가 재연결한다 */
   function listen(turnId: string, taskId: string) {
     stopStream(turnId)
     // 응답을 기다리는 사이 로그아웃·새 대화로 턴이 사라졌으면 구독하지 않는다
@@ -196,9 +220,17 @@ export const useChatStore = create<ChatState>()((set, get) => {
       onEvent: (event) => {
         update(turnId, (t) => reduce(t, event))
         if (event.type === 'APPROVAL_REQUIRED') void loadSnapshot(turnId, taskId)
-        if (event.type === 'DONE' || event.type === 'FAILED') stopStream(turnId)
+        if (event.type === 'DONE' || event.type === 'FAILED') {
+          stopStream(turnId)
+          void resync(turnId, taskId)
+        }
       },
-      onReconnect: () => void resync(turnId, taskId),
+      onConnect: () => void resync(turnId, taskId),
+      // 서버가 스트림을 닫으면 최종 상태를 확인한다. 조회 실패·진행 중이면 다시 연결
+      onClose: async () => {
+        const status = await resync(turnId, taskId)
+        return status === undefined || LIVE_STATUS.includes(status)
+      },
       onError: (status) => {
         stopStream(turnId)
         const message =
@@ -245,10 +277,12 @@ export const useChatStore = create<ChatState>()((set, get) => {
 
     async decide(turnId, decision) {
       const turn = get().turns.find((t) => t.id === turnId)
-      if (!turn?.taskId || turn.status !== 'WAITING_APPROVAL') return
+      if (!turn?.taskId || turn.status !== 'WAITING_APPROVAL' || turn.approvalPending) return
+      const taskId = turn.taskId
       update(turnId, (t) => ({ ...t, approvalPending: true, approvalError: undefined }))
       try {
-        await submitApproval(turn.taskId, decision)
+        // POST는 자동 재전송하지 않는다. 실패하면 아래에서 상세 조회로 실제 상태를 확인한다
+        await submitApproval(taskId, decision)
         if (decision.decision === 'REJECT') {
           // §8에 거절 종료 이벤트가 없어서 202를 받으면 바로 종료 처리
           stopStream(turnId)
@@ -262,7 +296,10 @@ export const useChatStore = create<ChatState>()((set, get) => {
           }))
         } else {
           update(turnId, (t) => ({ ...t, status: 'RUNNING', decision, approvalPending: false, currentLabel: '프로젝트 등록 준비 중' }))
+          // 승인 대기 중 스트림이 끊겨 있었으면 다시 붙는다
+          if (!unsubscribers.has(turnId)) listen(turnId, taskId)
         }
+        void resync(turnId, taskId)
       } catch (err) {
         update(turnId, (t) => ({
           ...t,
@@ -274,6 +311,8 @@ export const useChatStore = create<ChatState>()((set, get) => {
                 ? err.message
                 : '처리하지 못했습니다. 다시 시도해 주세요.',
         }))
+        // 409(이미 처리됨·승인 대기 아님)나 응답을 놓친 경우 → 서버 상태로 화면을 맞춘다
+        if (err instanceof ApiError && (err.status === 409 || err.status === 0)) void resync(turnId, taskId, { force: true })
       }
     },
 
@@ -287,7 +326,7 @@ export const useChatStore = create<ChatState>()((set, get) => {
           { id: turnId, requestText, taskId, status: 'QUEUED', nodes: initialNodes(), tools: [], text: '', approvalPending: false, restored: true },
         ],
       }))
-      const status = await resync(turnId, taskId, true)
+      const status = await resync(turnId, taskId, { reportError: true })
       if (status && LIVE_STATUS.includes(status)) listen(turnId, taskId)
     },
 

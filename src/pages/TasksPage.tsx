@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router'
 import { ApiError } from '@/api/client'
 import { listMyTasks } from '@/api/tasks'
 import { Logo } from '@/components/Logo'
+import { formatDateTime } from '@/lib/format'
 import { AppCard } from '@/layouts/AppCard'
 import { useChatStore } from '@/stores/chatStore'
 import type { TaskStatus, TaskSummary } from '@/types/task'
@@ -16,7 +17,6 @@ const STATUS: Record<TaskStatus, { label: string; cls: string }> = {
   REJECTED: { label: '거절됨', cls: 'bg-ink/6 text-muted' },
 }
 
-const formatTime = (iso: string) => new Date(iso).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' })
 
 type LoadState = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; tasks: TaskSummary[] }
 
@@ -78,7 +78,7 @@ export function TasksPage() {
                     </span>
                     <span className="min-w-0 flex-1 truncate text-sm">{task.requestText}</span>
                     <time dateTime={task.createdAt} className="shrink-0 text-[12px] text-muted">
-                      {formatTime(task.createdAt)}
+                      {formatDateTime(task.createdAt)}
                     </time>
                   </button>
                 </li>

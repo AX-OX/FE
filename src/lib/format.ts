@@ -26,6 +26,20 @@ export function formatScore(value: number): string {
   return value.toFixed(1)
 }
 
+/**
+ * 서버 날짜 문자열 → "2026. 10. 20. 오후 3:48"
+ * 작업 이력의 createdAt·completedAt은 오프셋 없는 로컬 시각(마이크로초 포함)이라 그대로 로컬 시각으로 읽는다.
+ * 임의로 Z(UTC)를 붙이지 않는다. 오프셋이 있으면(SSE ts 등) 그 시각대로 해석한다.
+ */
+export function formatDateTime(value: string): string {
+  const local = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?$/.exec(value)
+  const date = local
+    ? new Date(+local[1], +local[2] - 1, +local[3], +local[4], +local[5], +(local[6] ?? 0))
+    : new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' })
+}
+
 export function formatMonths(value: number | null): string {
   return value === null ? '회수 어려움' : `${value.toFixed(1)}개월`
 }

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { signup } from '@/api/auth'
-import { ApiError } from '@/api/client'
+import { ApiError, fieldErrors } from '@/api/client'
 import { Button } from '@/components/Button'
 import { FormAlert } from '@/components/FormAlert'
 import { TextField } from '@/components/TextField'
@@ -54,8 +54,13 @@ export function SignupPage() {
       await signup({ name: values.name.trim(), email, password: values.password })
       navigate('/login', { replace: true, state: { signupEmail: email } })
     } catch (err) {
+      const fields = fieldErrors(err)
       if (err instanceof ApiError && err.code === 'DUPLICATE_EMAIL') {
         setErrors((prev) => ({ ...prev, email: err.message }))
+      } else if (Object.keys(fields).length > 0) {
+        // 서버 검증(400 VALIDATION_ERROR) 결과를 해당 입력란에 표시
+        setErrors((prev) => ({ ...prev, ...fields }))
+        setFormError(err instanceof ApiError ? err.message : undefined)
       } else {
         setFormError(err instanceof ApiError ? err.message : '회원가입 중 문제가 발생했습니다.')
       }

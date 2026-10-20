@@ -71,7 +71,7 @@ export function CandidateTable({ candidates, nameOfSolution }: CandidateTablePro
                 <tr key={`${c.processId}-${c.solutionId}`} className={`border-t border-ink/6 align-top ${c.selected ? 'font-medium' : 'text-muted'}`}>
                   <td className="py-1.5 pr-2">
                     <span>
-                      {c.processName} <span className="text-[10px] text-muted">{c.departmentName}</span>
+                      {c.processName ?? `업무 ${c.processId}`} <span className="text-[10px] text-muted">{c.departmentName}</span>
                     </span>
                     <span className="mt-1 block font-normal">
                       <ItemBadges
@@ -82,7 +82,7 @@ export function CandidateTable({ candidates, nameOfSolution }: CandidateTablePro
                       />
                     </span>
                   </td>
-                  <td className="py-1.5 pr-2">{SOLUTION_LABEL[c.solutionType] ?? c.solutionType}</td>
+                  <td className="py-1.5 pr-2">{c.solutionType ? (SOLUTION_LABEL[c.solutionType] ?? c.solutionType) : (c.solutionName ?? `솔루션 ${c.solutionId}`)}</td>
                   <td className={`py-1.5 pr-2 text-right font-semibold ${c.selected ? 'text-accent' : ''}`}>{formatScore(c.axScore)}</td>
                   <td className="py-1.5 pr-2 text-right">{formatScore(c.impactScore)}</td>
                   <td className="py-1.5 pr-2 text-right">{formatScore(c.feasibilityScore)}</td>

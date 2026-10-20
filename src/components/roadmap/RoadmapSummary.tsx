@@ -58,12 +58,12 @@ export function RoadmapSummary({ itemCount, totalAllocatedKrw, budgetKrw, portfo
         >
           <div className="h-full rounded-full bg-accent" style={{ width: `${width}%` }} />
         </div>
-        {portfolio && (
+        {portfolio?.validCombinations != null && (
           <p className="mt-2 text-[11px] text-muted">
             예산·선행 과제 조건을 만족하는 조합 {portfolio.validCombinations.toLocaleString('ko-KR')}개 중 AX점수 합이 가장 높은 조합
           </p>
         )}
-        {greedy && greedy.violations.length > 0 && (
+        {greedy && (greedy.violations?.length ?? 0) > 0 && (
           <p className="mt-0.5 text-[11px] text-muted">
             AX점수 상위 3개를 그대로 고르면(합 {formatScore(greedy.totalAxScore)}, {formatKrw(greedy.totalFirstYearTcoKrw)}) 조건을 만족하지 못해요:{' '}
             {greedy.violations.map((v) => VIOLATION_LABEL[v] ?? v).join(', ')}

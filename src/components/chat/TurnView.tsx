@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { RoadmapReport } from '@/components/roadmap/RoadmapReport'
 import { formatKrw } from '@/lib/format'
 import { useChatStore, type Turn } from '@/stores/chatStore'
@@ -6,6 +7,26 @@ import { Markdown } from './Markdown'
 import { AiMessage, UserMessage } from './Message'
 import { ProgressSteps } from './ProgressSteps'
 import { ThinkingBubble } from './ThinkingBubble'
+
+const QUEUED_NOTICE_MS = 8_000
+
+/**
+ * 작업이 대기열(QUEUED)에 오래 머물면 안내한다.
+ * 분석 서버(Agent)가 꺼져 있으면 QUEUED로 계속 남는데, 분석 중이거나 끝난 것처럼 보이면 안 된다.
+ */
+function QueuedNotice() {
+  const [show, setShow] = useState(false)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShow(true), QUEUED_NOTICE_MS)
+    return () => window.clearTimeout(timer)
+  }, [])
+  if (!show) return null
+  return (
+    <p role="status" className="mt-1.5 text-[13px] text-muted">
+      작업이 대기열에 있어요. 분석이 아직 시작되지 않았습니다. 분석 서버가 꺼져 있으면 계속 대기 상태로 남을 수 있어요.
+    </p>
+  )
+}
 
 /** 사용자 요청 1개와 그에 대한 AI 응답 묶음 */
 export function TurnView({ turn }: { turn: Turn }) {
@@ -16,6 +37,8 @@ export function TurnView({ turn }: { turn: Turn }) {
   const streaming = turn.nodes.roadmap === 'active' && turn.status === 'RUNNING'
   const hasRoadmap = !!(turn.approval || turn.result?.roadmap)
   const projects = turn.result?.projects ?? []
+  // 예산·선행 조건을 만족하는 조합이 없음 (정상 응답)
+  const insufficient = !hasRoadmap && turn.result?.portfolio?.insufficient === true
 
   return (
     <div className="flex flex-col gap-2">
@@ -24,6 +47,7 @@ export function TurnView({ turn }: { turn: Turn }) {
       {pending ? (
         <AiMessage>
           <ThinkingBubble />
+          {turn.status === 'QUEUED' && turn.taskId && <QueuedNotice />}
         </AiMessage>
       ) : (
         <>
@@ -44,6 +68,14 @@ export function TurnView({ turn }: { turn: Turn }) {
               <div className="glass p-2.5 text-sm">
                 <Markdown>{turn.text}</Markdown>
                 {streaming && <span className="ml-0.5 inline-block h-4 w-[2px] translate-y-0.5 animate-caret bg-ink" aria-hidden="true" />}
+              </div>
+            </AiMessage>
+          )}
+
+          {insufficient && (
+            <AiMessage label={false}>
+              <div className="glass p-2.5 text-sm">
+                예산과 선행 과제 조건을 함께 만족하는 과제 조합을 찾지 못했어요. 예산이나 대상 부서를 바꿔 다시 요청해 보세요.
               </div>
             </AiMessage>
           )}

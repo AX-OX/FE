@@ -33,6 +33,7 @@ export function RoadmapReport({ turn }: { turn: Turn }) {
   const assumedData = candidates.some((c) => c.dataConfidence === 'ASSUMED')
   const nameOfSolution = (solutionId: number) =>
     items.find((i) => i.solutionId === solutionId)?.itemName ?? candidates.find((c) => c.solutionId === solutionId)?.solutionName
+  const nameOfProcess = (processId: number) => candidates.find((c) => c.processId === processId)?.processName
   const findCandidate = (processId: number, solutionId: number) => candidates.find((c) => c.processId === processId && c.solutionId === solutionId)
 
   return (
@@ -64,7 +65,7 @@ export function RoadmapReport({ turn }: { turn: Turn }) {
       </div>
 
       {turn.result?.maturity && <MaturityCard maturity={turn.result.maturity} />}
-      {portfolio && <ExcludedList excluded={portfolio.excluded} />}
+      {portfolio && <ExcludedList excluded={portfolio.excluded ?? []} warnings={portfolio.warnings ?? []} nameOfProcess={nameOfProcess} />}
       {candidates.length > 0 && <CandidateTable candidates={candidates} nameOfSolution={nameOfSolution} />}
     </section>
   )

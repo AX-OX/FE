@@ -34,8 +34,9 @@ export function MainPage() {
           </div>
         )}
         <div className="flex items-center gap-3 text-muted">
+          {/* 진행 중이어도 새 대화를 열 수 있다. 서버 작업은 그대로 진행되고 작업 이력에서 다시 불러온다 */}
           {!empty && (
-            <button type="button" onClick={reset} disabled={isBusy(lastTurn)} className="font-semibold text-ink hover:underline disabled:opacity-40 disabled:hover:no-underline">
+            <button type="button" onClick={reset} className="font-semibold text-ink hover:underline">
               새 대화
             </button>
           )}
