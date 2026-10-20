@@ -5,12 +5,20 @@ React 19 + Vite + TypeScript + Tailwind CSS v4
 ## 실행
 
 ```bash
-cp .env.example .env.local   # VITE_USE_MOCK=true면 백엔드 없이 동작
+cp .env.example .env.local   # 기본값은 실제 백엔드(VITE_USE_MOCK=false). true면 백엔드 없이 mock으로 동작
 npm install
 npm run dev                  # http://localhost:5173
 ```
 
-Mock 시연 계정: `demo@ax-navigator.com` / `demo1234!`
+| 모드 | 설정 | 계정 |
+|---|---|---|
+| 실제 백엔드 | Spring을 `localhost:8080`에 띄우고 `VITE_USE_MOCK=false` | 시드 `analyst1@gaon.example`, `analyst2@gaon.example` / `ChangeMe123!` (또는 회원가입) |
+| Mock | `VITE_USE_MOCK=true` | `demo@ax-navigator.com` / `demo1234!` |
+
+- `VITE_API_BASE_URL`을 비워 두면 개발 서버의 vite proxy가 `/api`를 백엔드로 넘긴다. 프록시는 `Origin` 헤더를 빼고 넘기므로 백엔드 CORS 설정 없이 동작한다.
+- `VITE_API_BASE_URL=http://localhost:8080`처럼 직접 연결하면 백엔드 `CORS_ORIGIN`에 프론트 주소(예: `http://localhost:5173`)를 넣고 재시작해야 한다. 안 하면 POST가 403(`Invalid CORS request`)으로 막힌다.
+- 백엔드가 `AGENT_ENABLED=false`면 새 작업은 QUEUED로 남는다. 화면은 8초 뒤 "대기열에 있어요" 안내를 띄우고 완료처럼 보이지 않게 한다. 분석·승인 흐름은 mock 모드로 확인한다.
+- Swagger: `http://localhost:8080/swagger-ui/index.html`
 
 ## 화면
 
@@ -69,14 +77,23 @@ src/
 
 Mock 선정 결과: 코드 리뷰 보조 에이전트 · 사내 규정 Q&A 검색 · 온보딩 안내 에이전트(사내 규정 Q&A가 선행). AX점수 1위인 장애 티켓 분류는 1년 차 비용 때문에 어떤 조합에서도 예산을 넘어 빠진다.
 
-## 백엔드 연동 메모 (SSE)
+## 백엔드 연동 메모
 
-진행 이벤트 스트림은 `EventSource` 대신 fetch로 읽고 **`Authorization: Bearer` 헤더로 인증**한다 (`src/api/sse.ts`). 토큰을 URL에 넣지 않는다.
+**공통 요청** (`src/api/client.ts`)
+- 응답 본문을 문자열로 먼저 읽고 비어 있으면 파싱하지 않는다 (승인 API는 본문 없는 202).
+- 오류는 `{ code, message, hint }`의 `message`를 그대로 보여 준다. 400 `VALIDATION_ERROR`의 `hint.fields`는 회원가입 입력란별로 표시한다.
+- 401은 세션 종료(로그인 화면), 403은 로그아웃하지 않고 메시지만 표시, 네트워크 오류는 HTTP 오류와 구분한다.
+- POST(작업 생성·승인)는 자동 재전송하지 않는다.
 
-Spring 쪽에서 필요한 것:
-- `GET /api/ai/tasks/{taskId}/stream`도 다른 API와 같은 JWT 헤더 인증
-- 15초마다 heartbeat 주석 전송 (`emitter.send(SseEmitter.event().comment("ping"))`) — 45초간 아무것도 안 오면 프론트가 재연결한다
-- Spring Security 7: `.dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()` (스트림 중간에 403 나는 문제 방지)
-- 스트림·조회·승인 모두 작업 요청자 본인인지 확인 (아니면 403/404 → 프론트는 재시도하지 않음)
-- nginx 경유 시 `proxy_buffering off` 또는 응답 헤더 `X-Accel-Buffering: no`
-- (선택) 이벤트에 `id:`를 붙이면 재연결 시 `Last-Event-ID` 헤더로 돌려받는다. 프론트는 재연결 직후 `GET /api/ai/tasks/{taskId}`로 상태를 다시 맞추므로 없어도 동작한다
+**SSE** (`src/api/sse.ts`, `src/stores/chatStore.ts`)
+- `EventSource` 대신 fetch 스트리밍 + `Authorization: Bearer` 헤더. 토큰을 URL에 넣지 않는다.
+- 청크 경계와 무관하게 빈 줄로 이벤트를 나눈다 (한 청크에 여러 이벤트, 청크 사이에서 나뉜 JSON·한글, CRLF 처리).
+- 45초간 아무것도 못 받으면(15초 heartbeat 포함) 다시 연결한다. 연결은 작업당 하나.
+- 이벤트 재생이 없으므로 연결될 때마다(첫 연결 포함) `GET /api/ai/tasks/{taskId}`로 상태를 맞춘다. DONE·FAILED 이벤트와 승인 후에도 다시 조회한다.
+- 서버가 스트림을 닫으면 상세 조회로 최종 상태를 확인하고, 아직 진행 중일 때만 다시 연결한다.
+- 승인 409(`INVALID_STATE`)나 응답을 놓친 경우 상세 조회 결과로 화면을 맞춘다.
+
+**결과 표시**
+- `result`는 null이거나 일부만 올 수 있다. 후보의 표시용 이름이 없으면 `업무 {id}`처럼 대체 문구로 보여 준다.
+- `portfolio.warnings`(지표 부족, `missingMonths`)는 제외 업무 목록에 함께 표시하고, `insufficient: true`는 "조건을 만족하는 조합이 없음" 안내로 보여 준다.
+- 작업 이력의 `createdAt`·`completedAt`은 오프셋 없는 로컬 시각이라 그대로 로컬 시각으로 읽는다 (Z를 붙이지 않는다).
