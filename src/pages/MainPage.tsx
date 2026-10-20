@@ -1,24 +1,70 @@
+import { ChatInput } from '@/components/chat/ChatInput'
+import { DocumentPanel } from '@/components/chat/DocumentPanel'
+import { MessageList } from '@/components/chat/MessageList'
+import { Suggestions } from '@/components/chat/Suggestions'
 import { Logo } from '@/components/Logo'
 import { AppCard } from '@/layouts/AppCard'
 import { useAuthStore } from '@/stores/authStore'
+import { isBusy, useChatStore } from '@/stores/chatStore'
 
-/** TODO: 메인(채팅) 화면 — 다음 작업에서 design-spec §3~4대로 구현 */
 export function MainPage() {
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
+  const turns = useChatStore((s) => s.turns)
+  const send = useChatStore((s) => s.send)
+  const reset = useChatStore((s) => s.reset)
+  const lastTurn = turns[turns.length - 1]
+  const empty = turns.length === 0
+
+  function handleLogout() {
+    reset()
+    logout()
+  }
 
   return (
-    <AppCard>
-      <div className="flex w-full justify-end px-6 pt-6 text-[13px] text-muted">
-        <span className="mr-3">{user?.name}님</span>
-        <button type="button" onClick={logout} className="font-semibold text-ink hover:underline">
-          로그아웃
-        </button>
+    <AppCard fixedHeight>
+      <header className="flex w-full shrink-0 items-center justify-between gap-3 px-5 pt-5 text-[13px] sm:px-8 sm:pt-6">
+        {empty ? (
+          <span />
+        ) : (
+          <div className="flex items-center gap-2">
+            <Logo className="h-[21px] w-5 text-ink" />
+            <span className="font-semibold">AX Navigator AI</span>
+          </div>
+        )}
+        <div className="flex items-center gap-3 text-muted">
+          {!empty && (
+            <button type="button" onClick={reset} disabled={isBusy(lastTurn)} className="font-semibold text-ink hover:underline disabled:opacity-40 disabled:hover:no-underline">
+              새 대화
+            </button>
+          )}
+          <span className="hidden sm:inline">{user?.name}님</span>
+          <button type="button" onClick={handleLogout} className="font-semibold text-ink hover:underline">
+            로그아웃
+          </button>
+        </div>
+      </header>
+
+      {empty ? (
+        <>
+          {/* design-spec §4.2 히어로 — 로고 ↔ 타이틀 48px */}
+          <div className="mt-[clamp(32px,12vh,120px)] flex flex-col items-center gap-12 px-4 text-center">
+            <Logo className="h-[37.83px] w-9 text-ink" />
+            <h1 className="text-2xl">AX 전환, 무엇이든 물어보세요</h1>
+          </div>
+          <div className="mt-auto w-full max-w-[915px] px-4 pt-8">
+            <Suggestions onPick={send} />
+          </div>
+        </>
+      ) : (
+        <MessageList />
+      )}
+
+      <div className={`w-full max-w-[915px] shrink-0 px-4 pb-5 sm:pb-[37px] ${empty ? 'pt-[38px]' : 'pt-3'}`}>
+        <ChatInput onSend={send} disabled={isBusy(lastTurn)} />
       </div>
-      <div className="mt-[120px] flex flex-col items-center gap-12">
-        <Logo className="h-[37.83px] w-9 text-ink" />
-        <h1 className="text-2xl">Ask our AI anything</h1>
-      </div>
+
+      <DocumentPanel />
     </AppCard>
   )
 }
