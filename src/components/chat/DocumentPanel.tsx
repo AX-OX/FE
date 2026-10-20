@@ -1,9 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '@/api/client'
 import { getDocument } from '@/api/tasks'
+import { Badge } from '@/components/roadmap/Badges'
 import { useChatStore } from '@/stores/chatStore'
 import type { DocumentDetail } from '@/types/task'
 import { Markdown } from './Markdown'
+
+/** 민감도 표시용 (검색 권한과 무관) */
+const ACCESS_LEVEL: Record<NonNullable<DocumentDetail['accessLevel']>, { label: string; tone: 'neutral' | 'accent' | 'warn' }> = {
+  PUBLIC: { label: '공개', tone: 'neutral' },
+  INTERNAL: { label: '사내', tone: 'accent' },
+  CONFIDENTIAL: { label: '대외비', tone: 'warn' },
+}
 
 type LoadState = { id: number } & ({ status: 'error'; message: string } | { status: 'ready'; doc: DocumentDetail })
 
@@ -52,9 +60,16 @@ export function DocumentPanel() {
             <p className="text-[11px] font-medium text-muted">
               근거 문서{state.status === 'ready' && ` · ${state.doc.docType}${state.doc.version ? ` · ${state.doc.version}` : ''}`}
             </p>
-            <h2 id="doc-title" className="truncate text-base font-semibold">
-              {state.status === 'ready' ? state.doc.title : `문서 ${documentId}`}
-            </h2>
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 id="doc-title" className="truncate text-base font-semibold">
+                {state.status === 'ready' ? state.doc.title : `문서 ${documentId}`}
+              </h2>
+              {state.status === 'ready' && state.doc.accessLevel && (
+                <Badge tone={ACCESS_LEVEL[state.doc.accessLevel].tone} title="문서 민감도">
+                  {ACCESS_LEVEL[state.doc.accessLevel].label}
+                </Badge>
+              )}
+            </div>
           </div>
           <button
             ref={closeRef}

@@ -13,6 +13,7 @@ export function ApprovalCard({ turn, onDecide }: ApprovalCardProps) {
   const [rejecting, setRejecting] = useState(false)
   const [reason, setReason] = useState('')
   const itemCount = turn.approval?.items.length ?? 0
+  const reviewCount = turn.approval?.items.filter((i) => i.humanReviewRequired).length ?? 0
 
   return (
     <div className="rounded-lg border border-accent/30 bg-white/80 p-4 backdrop-blur-sm">
@@ -21,6 +22,7 @@ export function ApprovalCard({ turn, onDecide }: ApprovalCardProps) {
         승인하면 로드맵과 프로젝트 {itemCount}건이 등록됩니다
         {turn.approval && ` (배정 예산 ${formatKrw(turn.approval.totalAllocatedKrw)})`}.
       </p>
+      {reviewCount > 0 && <p className="mt-1 text-[13px] text-muted">사람 검토 단계가 포함된 과제 {reviewCount}건</p>}
 
       {turn.approvalError && (
         <p role="alert" className="mt-3 text-[13px] text-danger">
@@ -39,7 +41,7 @@ export function ApprovalCard({ turn, onDecide }: ApprovalCardProps) {
             onChange={(e) => setReason(e.target.value)}
             rows={2}
             autoFocus
-            placeholder="예: 고객지원 과제는 내년으로 미루고 싶어요"
+            placeholder="예: 개발팀 과제는 내년으로 미루고 싶어요"
             className="w-full resize-none rounded-lg border border-line bg-surface p-2.5 text-sm outline-none focus:border-line-strong"
           />
           <div className="mt-2 flex gap-2">

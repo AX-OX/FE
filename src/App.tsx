@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate, RouterProvider } from 'react-router'
 import { LoginPage } from '@/pages/LoginPage'
 import { MainPage } from '@/pages/MainPage'
 import { SignupPage } from '@/pages/SignupPage'
+import { TasksPage } from '@/pages/TasksPage'
 import { GuestOnly, RequireAuth } from '@/routes/guards'
 
 const router = createBrowserRouter([
@@ -14,7 +15,10 @@ const router = createBrowserRouter([
   },
   {
     element: <RequireAuth />,
-    children: [{ path: '/', element: <MainPage /> }],
+    children: [
+      { path: '/', element: <MainPage /> },
+      { path: '/tasks', element: <TasksPage /> },
+    ],
   },
   { path: '*', element: <Navigate to="/" replace /> },
 ])

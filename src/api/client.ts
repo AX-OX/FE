@@ -41,6 +41,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as ApiErrorBody | null
     if (res.status === 401 && token) useAuthStore.getState().logout()
+    if (!body?.message && res.status === 403) throw new ApiError(403, { code: body?.code ?? 'FORBIDDEN', message: '작업을 요청한 본인만 볼 수 있어요.' })
     throw new ApiError(res.status, body ?? { code: 'HTTP_ERROR', message: `요청에 실패했습니다. (${res.status})` })
   }
 

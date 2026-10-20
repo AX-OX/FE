@@ -11,6 +11,8 @@ import { ThinkingBubble } from './ThinkingBubble'
 export function TurnView({ turn }: { turn: Turn }) {
   const decide = useChatStore((s) => s.decide)
   const started = turn.tools.length > 0 || turn.text.length > 0
+  // 이력에서 불러온 턴은 진행 과정이 없으므로 상태만 보고 판단한다
+  const pending = !started && (turn.status === 'QUEUED' || (turn.status === 'RUNNING' && !turn.restored))
   const streaming = turn.nodes.roadmap === 'active' && turn.status === 'RUNNING'
   const hasRoadmap = !!(turn.approval || turn.result?.roadmap)
   const projects = turn.result?.projects ?? []
@@ -19,7 +21,7 @@ export function TurnView({ turn }: { turn: Turn }) {
     <div className="flex flex-col gap-2">
       <UserMessage text={turn.requestText} />
 
-      {!started && turn.status !== 'FAILED' ? (
+      {pending ? (
         <AiMessage>
           <ThinkingBubble />
         </AiMessage>
@@ -28,6 +30,12 @@ export function TurnView({ turn }: { turn: Turn }) {
           {started && (
             <AiMessage>
               <ProgressSteps turn={turn} />
+            </AiMessage>
+          )}
+
+          {!started && turn.restored && turn.status !== 'FAILED' && (
+            <AiMessage>
+              <div className="glass p-2.5 text-sm text-muted">작업 이력에서 불러온 결과예요. 진행 과정과 답변 원문은 남아 있지 않아요.</div>
             </AiMessage>
           )}
 
@@ -80,7 +88,7 @@ export function TurnView({ turn }: { turn: Turn }) {
               <div className="glass p-2.5 text-sm">
                 로드맵을 거절했습니다. 등록된 프로젝트는 없습니다.
                 {turn.decision?.reason && <p className="mt-1 text-[13px] text-muted">사유: {turn.decision.reason}</p>}
-                <p className="mt-1 text-[13px] text-muted">조건을 바꿔 다시 요청할 수 있어요. 예: “고객지원은 빼고 {turn.approval ? formatKrw(turn.approval.budgetKrw) : '예산'} 안에서 다시 짜 줘”</p>
+                <p className="mt-1 text-[13px] text-muted">조건을 바꿔 다시 요청할 수 있어요. 예: “인사는 빼고 {turn.approval ? formatKrw(turn.approval.budgetKrw) : '예산'} 안에서 다시 짜 줘”</p>
               </div>
             </AiMessage>
           )}
