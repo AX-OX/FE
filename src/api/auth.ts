@@ -75,7 +75,7 @@ async function mockLogin({ email, password }: LoginRequest): Promise<LoginRespon
   await delay(600)
   const user = readMockUsers().find((u) => u.email === email.trim().toLowerCase())
   if (!user || user.password !== password) {
-    throw new ApiError(401, { code: 'INVALID_CREDENTIALS', message: '이메일 또는 비밀번호가 올바르지 않습니다.' })
+    throw new ApiError(401, { code: 'UNAUTHORIZED', message: '이메일 또는 비밀번호가 올바르지 않습니다.' })
   }
   return {
     accessToken: `mock.${btoa(String(user.userId))}.${Date.now()}`,

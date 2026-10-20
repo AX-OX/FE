@@ -25,6 +25,32 @@ export class ApiError extends Error {
   }
 }
 
+/** 서버가 오류 본문을 주지 않았을 때(프록시 오류·HTML 등) 보여 줄 문구 */
+function fallbackError(status: number): ApiErrorBody {
+  if (status === 403) return { code: 'FORBIDDEN', message: '접근 권한이 없습니다.' }
+  if (status === 404) return { code: 'NOT_FOUND', message: '요청한 정보를 찾을 수 없습니다.' }
+  if (status >= 500) return { code: 'INTERNAL_ERROR', message: '서버에 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.' }
+  return { code: 'HTTP_ERROR', message: `요청에 실패했습니다. (${status})` }
+}
+
+/** 본문을 문자열로 읽고 비어 있으면 undefined (승인 API는 본문 없는 202) */
+async function readJson(res: Response): Promise<unknown> {
+  const text = await res.text().catch(() => '')
+  if (!text) return undefined
+  try {
+    return JSON.parse(text)
+  } catch {
+    return undefined
+  }
+}
+
+/** 400 VALIDATION_ERROR의 `hint.fields` → { 필드명: 메시지 } */
+export function fieldErrors(err: unknown): Record<string, string> {
+  if (!(err instanceof ApiError)) return {}
+  const fields = err.hint?.fields
+  return fields && typeof fields === 'object' ? (fields as Record<string, string>) : {}
+}
+
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().accessToken
   const headers = new Headers(init.headers)
@@ -38,14 +64,12 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
     throw new ApiError(0, { code: 'NETWORK_ERROR', message: '서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.' })
   }
 
+  const body = await readJson(res)
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as ApiErrorBody | null
     // 토큰이 만료·무효 → 세션 종료 (RequireAuth가 로그인 화면으로 보낸다). 로그인 요청의 401은 토큰이 없어 해당 없음
     if (res.status === 401 && token) useAuthStore.getState().logout('expired')
-    if (!body?.message && res.status === 403) throw new ApiError(403, { code: body?.code ?? 'FORBIDDEN', message: '작업을 요청한 본인만 볼 수 있어요.' })
-    throw new ApiError(res.status, body ?? { code: 'HTTP_ERROR', message: `요청에 실패했습니다. (${res.status})` })
+    const error = body as Partial<ApiErrorBody> | undefined
+    throw new ApiError(res.status, error?.message ? { code: error.code ?? 'HTTP_ERROR', message: error.message, hint: error.hint } : fallbackError(res.status))
   }
-
-  if (res.status === 204) return undefined as T
-  return (await res.json()) as T
+  return body as T
 }
