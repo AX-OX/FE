@@ -20,6 +20,18 @@ npm run dev                  # http://localhost:5173
 - 백엔드가 `AGENT_ENABLED=false`면 새 작업은 QUEUED로 남는다. 화면은 8초 뒤 "대기열에 있어요" 안내를 띄우고 완료처럼 보이지 않게 한다. 분석·승인 흐름은 mock 모드로 확인한다.
 - Swagger: `http://localhost:8080/swagger-ui/index.html`
 
+## 배포 (Vercel)
+
+1. Vercel에서 이 저장소를 Import (Vite 자동 인식, Build `npm run build`, Output `dist`)
+2. Environment Variables
+   - 백엔드 연결: `VITE_API_BASE_URL=https://배포된-백엔드-주소` (끝에 `/`, `/api` 없이), `VITE_USE_MOCK=false`
+   - 백엔드 없이 화면만: `VITE_USE_MOCK=true`
+   - 빌드할 때 들어가는 값이라 바꾸면 Redeploy 해야 한다
+3. 백엔드 `CORS_ORIGIN`에 Vercel 주소(예: `https://프로젝트명.vercel.app`)를 추가하고 재시작. 백엔드는 HTTPS여야 한다 (HTTP면 브라우저가 막음)
+
+`vercel.json`은 `/tasks` 같은 주소에서 새로고침해도 404가 나지 않게 모든 경로를 `index.html`로 돌려준다.
+배포본에는 Vite 프록시가 없으므로 `VITE_API_BASE_URL`을 반드시 넣는다. SSE 때문에 Vercel rewrites로 `/api`를 프록시하지 않고 백엔드에 직접 연결한다.
+
 ## 화면
 
 | 경로 | 화면 | 접근 |
