@@ -21,6 +21,11 @@ export function formatPct(value: number, digits = 0): string {
   return `${value > 0 ? '+' : ''}${value.toFixed(digits)}%`
 }
 
+/** AX점수·Impact·Feasibility (0~100) → 소수 첫째 자리 */
+export function formatScore(value: number): string {
+  return value.toFixed(1)
+}
+
 export function formatMonths(value: number | null): string {
-  return value === null ? '회수 불가' : `${value.toFixed(1)}개월`
+  return value === null ? '회수 어려움' : `${value.toFixed(1)}개월`
 }
