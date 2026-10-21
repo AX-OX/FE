@@ -1,0 +1,247 @@
+import { ApiError } from '@/api/client'
+import { useAuthStore } from '@/stores/authStore'
+import type { AgentNode, ApprovalRequest, DocumentDetail, TaskDetail, TaskEvent, TaskResult, TaskStatus, TaskSummary } from '@/types/task'
+import { BUDGET_KRW, CANDIDATES, DEPARTMENT_ID, DOCUMENTS, MATURITY, PORTFOLIO, ROADMAP_ITEMS, ROADMAP_NAME, SUMMARY_TEXT } from './fixtures'
+
+/**
+ * 백엔드 없이 §8 이벤트 흐름(TOOL → TOKEN → APPROVAL_REQUIRED → 승인 → DONE)을 흉내 낸다.
+ * - 작업을 만든 사용자가 아니면 조회·스트림·승인 모두 403
+ * - 요청 문구에 '실패'가 들어가면 evaluate 단계에서 FAILED
+ * - 작업은 메모리에만 있어서 새로고침하면 이력이 사라진다
+ */
+
+type Listener = (e: TaskEvent) => void
+type Step = [delayMs: number, make: () => TaskEvent]
+
+interface MockTask {
+  ownerId: number | undefined
+  requestText: string
+  createdAt: string
+  completedAt: string | null
+  failing: boolean
+  status: TaskStatus
+  result: TaskResult | null
+  traceUrl: string | null
+  listeners: Set<Listener>
+  timers: number[]
+  started: boolean
+}
+
+const tasks = new Map<string, MockTask>()
+const TRACE_URL = 'https://smith.langchain.com/mock-trace'
+// 서버가 준 값이라고 가정 (프론트에서 합산하지 않는다)
+const totalAllocated = PORTFOLIO.totalFirstYearTcoKrw
+
+const currentUserId = () => useAuthStore.getState().user?.userId
+
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+function find(taskId: string): MockTask {
+  const task = tasks.get(taskId)
+  if (!task) throw new ApiError(404, { code: 'NOT_FOUND', message: '작업을 찾을 수 없습니다.' })
+  if (task.ownerId !== currentUserId()) throw new ApiError(403, { code: 'FORBIDDEN', message: '작업을 요청한 본인만 볼 수 있어요.' })
+  return task
+}
+
+function emit(taskId: string, event: Omit<TaskEvent, 'taskId' | 'ts'>): TaskEvent {
+  return { ...event, taskId, ts: new Date().toISOString() } as TaskEvent
+}
+
+function tool(taskId: string, node: AgentNode, name: string, label: string, gap = 450): Step[] {
+  return [
+    [gap, () => emit(taskId, { type: 'TOOL_START', node, data: { tool: name, label } })],
+    [500, () => emit(taskId, { type: 'TOOL_END', node, data: { tool: name, label, ok: true } })],
+  ]
+}
+
+function tokens(taskId: string, text: string): Step[] {
+  // 2~4글자씩 끊어서 스트리밍
+  const chunks = text.match(/[\s\S]{1,3}/g) ?? []
+  return chunks.map((chunk) => [18, () => emit(taskId, { type: 'TOKEN', node: 'roadmap', data: { text: chunk } })] as Step)
+}
+
+function run(task: MockTask, steps: Step[]) {
+  let at = 0
+  for (const [delay, make] of steps) {
+    at += delay
+    task.timers.push(
+      window.setTimeout(() => {
+        const event = make()
+        if (event.type === 'APPROVAL_REQUIRED') task.status = 'WAITING_APPROVAL'
+        if (event.type === 'DONE') task.status = 'DONE'
+        if (event.type === 'FAILED') task.status = 'FAILED'
+        if (event.type === 'DONE' || event.type === 'FAILED') task.completedAt = event.ts
+        task.listeners.forEach((l) => l(event))
+      }, at),
+    )
+  }
+}
+
+function analysisSteps(taskId: string, task: MockTask): Step[] {
+  return [
+    ...tool(taskId, 'collect', 'business_get_company_profile', '기업 정보 조회 중', 300),
+    ...tool(taskId, 'collect', 'business_get_business_processes', '업무 프로세스 조회 중'),
+    ...tool(taskId, 'collect', 'business_get_operational_metrics', '업무 지표 조회 중'),
+    ...tool(taskId, 'collect', 'business_get_system_inventory', 'IT 시스템 조회 중'),
+    ...tool(taskId, 'collect', 'business_get_project_budget', 'AX 예산 조회 중'),
+    ...tool(taskId, 'retrieve', 'rag_search_docs', '업무 매뉴얼 검색 중'),
+    ...tool(taskId, 'retrieve', 'rag_search_docs', '시스템 명세·데이터 품질 문서 검색 중'),
+    ...tool(taskId, 'assess', 'business_save_assessment', '성숙도 진단 결과 저장 중', 700),
+    ...tool(taskId, 'discover', 'business_get_solution_catalog', 'AI 솔루션 카탈로그 조회 중'),
+    ...tool(taskId, 'evaluate', 'business_calculate_ax_roi', '후보 8개 AX점수 계산 중'),
+    ...(task.failing ? failSteps(taskId, task) : evaluateRest(taskId, task)),
+  ]
+}
+
+/** '실패' 시나리오: 포트폴리오 계산 도구가 재시도 후에도 실패 */
+function failSteps(taskId: string, task: MockTask): Step[] {
+  const name = 'business_optimize_ax_portfolio'
+  const label = '예산·선행 조건 조합 탐색 중'
+  return [
+    [450, () => emit(taskId, { type: 'TOOL_START', node: 'evaluate', data: { tool: name, label } })],
+    [1200, () => emit(taskId, { type: 'TOOL_END', node: 'evaluate', data: { tool: name, label, ok: false } })],
+    [
+      300,
+      () => {
+        task.traceUrl = TRACE_URL
+        return emit(taskId, { type: 'FAILED', node: 'evaluate', data: { message: 'business-mcp 서버에 연결하지 못했습니다. 2회 재시도 후 중단했습니다.', traceUrl: TRACE_URL } })
+      },
+    ],
+  ]
+}
+
+function evaluateRest(taskId: string, task: MockTask): Step[] {
+  return [
+    ...tool(taskId, 'evaluate', 'business_optimize_ax_portfolio', '예산·선행 조건 조합 탐색 중'),
+    [
+      400,
+      () => {
+        // approval Node 직전에 Agent가 result 스냅샷을 PATCH 한다고 가정
+        task.result = {
+          maturity: MATURITY,
+          candidates: CANDIDATES,
+          portfolio: PORTFOLIO,
+          roadmap: { roadmapName: ROADMAP_NAME, budgetLimitKrw: BUDGET_KRW, totalAllocatedKrw: totalAllocated, approvalStatus: 'PENDING', items: ROADMAP_ITEMS },
+        }
+        return emit(taskId, { type: 'TOOL_START', node: 'roadmap', data: { tool: 'roadmap_draft', label: '로드맵 초안 작성 중' } })
+      },
+    ],
+    ...tokens(taskId, SUMMARY_TEXT),
+    [
+      300,
+      () =>
+        emit(taskId, {
+          type: 'APPROVAL_REQUIRED',
+          node: 'approval',
+          data: {
+            roadmap: { roadmapName: ROADMAP_NAME, budgetLimitKrw: BUDGET_KRW, totalAllocatedKrw: totalAllocated, approvalStatus: 'PENDING' },
+            items: ROADMAP_ITEMS,
+            totalAllocatedKrw: totalAllocated,
+            budgetKrw: BUDGET_KRW,
+          },
+        }),
+    ],
+  ]
+}
+
+const departmentOf = (solutionId: number) => DEPARTMENT_ID[CANDIDATES.find((c) => c.solutionId === solutionId)?.departmentName ?? ''] ?? 101
+
+function registerSteps(taskId: string, task: MockTask): Step[] {
+  const items = ROADMAP_ITEMS.map((item, i) => ({ ...item, itemId: 901 + i }))
+  const projects = items.map((item, i) => ({
+    projectId: 10001 + i,
+    itemId: item.itemId,
+    projectName: item.itemName,
+    ownerDepartmentId: departmentOf(item.solutionId),
+    projectStatus: 'REGISTERED',
+  }))
+  return [
+    ...tool(taskId, 'register', 'business_create_ax_roadmap', '로드맵 등록 중', 300),
+    ...projects.flatMap((p) => tool(taskId, 'register', 'business_create_ax_project', `프로젝트 등록 중: ${p.projectName}`, 250)),
+    [
+      400,
+      () => {
+        task.result = {
+          ...task.result,
+          roadmap: { roadmapId: 801, roadmapName: ROADMAP_NAME, budgetLimitKrw: BUDGET_KRW, totalAllocatedKrw: totalAllocated, approvalStatus: 'APPROVED', items },
+          projects,
+        }
+        return emit(taskId, { type: 'DONE', node: 'register', data: { result: task.result } })
+      },
+    ],
+  ]
+}
+
+export async function createTask(requestText: string): Promise<{ taskId: string }> {
+  await wait(250)
+  if (!requestText.trim()) throw new ApiError(400, { code: 'BAD_REQUEST', message: '요청 내용을 입력해 주세요.' })
+  const taskId = crypto.randomUUID()
+  tasks.set(taskId, {
+    ownerId: currentUserId(),
+    requestText,
+    createdAt: new Date().toISOString(),
+    completedAt: null,
+    failing: requestText.includes('실패'),
+    status: 'QUEUED',
+    result: null,
+    traceUrl: null,
+    listeners: new Set(),
+    timers: [],
+    started: false,
+  })
+  return { taskId }
+}
+
+export async function getTask(taskId: string): Promise<TaskDetail> {
+  await wait(150)
+  const task = find(taskId)
+  return { taskId, status: task.status, result: task.result, traceUrl: task.traceUrl }
+}
+
+export async function submitApproval(taskId: string, { decision, reason }: ApprovalRequest): Promise<void> {
+  await wait(400)
+  const task = find(taskId)
+  if (task.status !== 'WAITING_APPROVAL') {
+    throw new ApiError(409, { code: 'INVALID_STATE', message: '승인 대기 중인 작업이 아닙니다.' })
+  }
+  // §8: Spring이 결정을 result.approval에 기록한다
+  task.result = { ...task.result, approval: { decision, userId: currentUserId() ?? 0, reason: reason ?? null, decidedAt: new Date().toISOString() } }
+  if (decision === 'REJECT') {
+    task.status = 'REJECTED'
+    task.completedAt = new Date().toISOString()
+    return
+  }
+  task.status = 'RUNNING'
+  run(task, registerSteps(taskId, task))
+}
+
+export async function listMyTasks(): Promise<TaskSummary[]> {
+  await wait(250)
+  const me = currentUserId()
+  return [...tasks.entries()]
+    .filter(([, t]) => t.ownerId === me)
+    .map(([taskId, t]) => ({ taskId, status: t.status, requestText: t.requestText, createdAt: t.createdAt, completedAt: t.completedAt }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+}
+
+export function subscribe(taskId: string, listener: Listener, onError: (status?: number) => void): () => void {
+  const task = tasks.get(taskId)
+  if (!task || task.ownerId !== currentUserId()) {
+    const timer = window.setTimeout(() => onError(task ? 403 : 404), 200)
+    return () => window.clearTimeout(timer)
+  }
+  task.listeners.add(listener)
+  if (!task.started) {
+    task.started = true
+    task.status = 'RUNNING'
+    run(task, analysisSteps(taskId, task))
+  }
+  return () => task.listeners.delete(listener)
+}
+
+export async function getDocument(documentId: number): Promise<DocumentDetail> {
+  await wait(300)
+  const doc = DOCUMENTS[documentId]
+  if (!doc) throw new ApiError(404, { code: 'NOT_FOUND', message: `문서 ${documentId}를 찾을 수 없습니다.` })
+  return doc
+}

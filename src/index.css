@@ -1,0 +1,54 @@
+@import 'tailwindcss';
+
+/* design-spec.md §2 디자인 토큰 */
+@theme {
+  --font-sans: 'Manrope', ui-sans-serif, system-ui, -apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+
+  --color-surface: #ffffff;
+  --color-canvas: #f5f5f5;
+  --color-ink: #160211;
+  --color-muted: #56637e;
+  --color-label: rgb(0 0 0 / 0.6);
+  --color-line: rgb(22 2 17 / 0.3);
+  --color-line-strong: rgb(22 2 17 / 0.6);
+  --color-glass: rgb(255 255 255 / 0.5);
+  --color-danger: #c4314b;
+  --color-accent: #5b4fd6;
+  --color-send: rgb(69 98 136 / 0.5);
+
+  /* Figma 노드 0:7 원본 색 */
+  --color-blob-blue: #89bcff;
+  --color-blob-pink: #ff86e1;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-canvas font-sans text-ink antialiased;
+  }
+}
+
+/* 칩·말풍선 공통 (design-spec §4.3~4.4) */
+@utility glass {
+  background-color: var(--color-glass);
+  border: 1px solid #fff;
+  border-radius: 8px;
+  /* 흰 배경 위에서도 윤곽이 보이도록 아주 옅은 그림자 (디자인엔 없음) */
+  box-shadow: 0 1px 3px rgb(22 2 17 / 0.06), 0 0 0 1px rgb(22 2 17 / 0.03);
+  backdrop-filter: blur(12px);
+}
+
+@keyframes caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@utility animate-caret {
+  animation: caret-blink 1s steps(1) infinite;
+}
