@@ -11,6 +11,7 @@ import type { TaskStatus, TaskSummary } from '@/types/task'
 const STATUS: Record<TaskStatus, { label: string; cls: string }> = {
   QUEUED: { label: '대기', cls: 'bg-ink/6 text-muted' },
   RUNNING: { label: '분석 중', cls: 'bg-accent/10 text-accent' },
+  WAITING_CONFIRMATION: { label: '확정 대기', cls: 'bg-amber-50 text-amber-800 border-amber-600/20' },
   WAITING_APPROVAL: { label: '승인 대기', cls: 'bg-amber-50 text-amber-800 border-amber-600/20' },
   DONE: { label: '완료', cls: 'bg-emerald-50 text-emerald-800 border-emerald-600/20' },
   FAILED: { label: '실패', cls: 'bg-danger/10 text-danger' },

@@ -49,6 +49,7 @@ const scenarios = (low: Row, base: Row, high: Row): Record<Scenario, ScenarioMet
 
 const candidate = (c: Omit<CandidateScore, 'dataConfidence' | 'dependsOnSolutionId' | 'warnings' | 'apiOk' | 'humanReviewRequired' | 'selected' | 'evidence'> & Partial<CandidateScore>): CandidateScore => ({
   dependsOnSolutionId: null,
+  dependsOnProcessId: null,
   evidence: [],
   apiOk: true,
   humanReviewRequired: false,
@@ -78,7 +79,7 @@ export const CANDIDATES: CandidateScore[] = [
     evidence: [EV.hrRules],
   }),
   candidate({
-    processId: 202, solutionId: 502, dependsOnSolutionId: 501, processName: '신규 입사자 온보딩 안내', departmentName: '인사', solutionType: 'AI_AGENT', solutionName: '온보딩 안내 에이전트',
+    processId: 202, solutionId: 502, dependsOnSolutionId: 501, dependsOnProcessId: 201, processName: '신규 입사자 온보딩 안내', departmentName: '인사', solutionType: 'AI_AGENT', solutionName: '온보딩 안내 에이전트',
     axScore: 50.1, impactScore: 26.8, feasibilityScore: 85, savedHoursBase: 900, firstYearTcoKrw: 64_400_000, selected: true,
     scenarios: scenarios([21_600_000, -66.46, 83.3, -28_400_000], [32_400_000, -49.69, 33.3, 4_000_000], [45_360_000, -29.57, 19.4, 42_880_000]),
     evidence: [EV.hrOnboarding],
@@ -105,6 +106,9 @@ export const CANDIDATES: CandidateScore[] = [
   }),
 ]
 
+/** mock 솔루션 50x는 업무 20x에 붙는다 */
+const keys = (...solutionIds: number[]) => solutionIds.map((solutionId) => ({ processId: solutionId - 300, solutionId }))
+
 export const PORTFOLIO: Portfolio = {
   insufficient: false,
   budgetKrw: BUDGET_KRW,
@@ -116,8 +120,8 @@ export const PORTFOLIO: Portfolio = {
   // 실제 응답은 표시용 필드가 없는 /internal/ax/roi 형식이다
   selected: CANDIDATES.filter((c) => c.selected),
   excluded: [{ processId: 203, processName: '인사평가 등급 산정', reason: '사람에 대한 최종 평가를 AI가 결정하게 됨' }],
-  runnerUp: { solutionIds: [501, 508, 509], totalAxScore: 187.2 },
-  greedyTop3: { solutionIds: [507, 508, 501], totalAxScore: 236, totalFirstYearTcoKrw: 365_600_000, violations: ['BUDGET_EXCEEDED'] },
+  runnerUp: { candidates: keys(501, 508, 509), totalAxScore: 187.2 },
+  greedyTop3: { candidates: keys(507, 508, 501), totalAxScore: 236, totalFirstYearTcoKrw: 365_600_000, violations: ['BUDGET_EXCEEDED'] },
 }
 
 /** 우선순위 = AX점수 순, 선행 과제(사내 규정 Q&A)가 온보딩 에이전트보다 먼저 */

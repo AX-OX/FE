@@ -1,19 +1,21 @@
 import { useState } from 'react'
-import { formatKrwShort, formatMonths, formatPct, formatScore } from '@/lib/format'
+import { formatKrw, formatKrwShort, formatMonths, formatPct, formatScore } from '@/lib/format'
 import type { CandidateScore, Scenario } from '@/types/task'
 import { HelpIcon, ItemBadges } from './Badges'
 import { ROI_HELP, SCENARIO_LABEL, SOLUTION_LABEL } from './labels'
 
 interface CandidateTableProps {
   candidates: CandidateScore[]
-  /** solutionId → 선행 과제명 */
-  nameOfSolution: (solutionId: number) => string | undefined
+  /** 요청에 예산이 없으면 null */
+  budgetKrw: number | null
+  /** 후보 → 선행 과제명 (선행 과제가 없으면 undefined) */
+  dependencyName: (candidate: CandidateScore) => string | undefined
 }
 
 const SCENARIOS: Scenario[] = ['low', 'base', 'high']
 
 /** 후보 전체 비교 — AX점수 내림차순. 보조 지표 3열만 시나리오 토글로 바꾼다 */
-export function CandidateTable({ candidates, nameOfSolution }: CandidateTableProps) {
+export function CandidateTable({ candidates, budgetKrw, dependencyName }: CandidateTableProps) {
   const [scenario, setScenario] = useState<Scenario>('base')
   const sorted = [...candidates].sort((a, b) => b.axScore - a.axScore)
 
@@ -25,7 +27,7 @@ export function CandidateTable({ candidates, nameOfSolution }: CandidateTablePro
           <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </summary>
-      <p className="mt-1 text-[11px] text-muted">AX점수 = Impact × 0.6 + Feasibility × 0.4 · 선정은 예산 3억 안에서 AX점수 합 최대 조합</p>
+      <p className="mt-1 text-[11px] text-muted">AX점수 = Impact × 0.6 + Feasibility × 0.4 · 선정은 {budgetKrw === null ? '예산 제약 없이' : `예산 ${formatKrw(budgetKrw)} 안에서`} AX점수 합 최대 조합</p>
 
       <div className="mt-3 flex items-center gap-2 text-[11px]">
         <span className="text-muted">보조 지표 시나리오</span>
@@ -76,7 +78,7 @@ export function CandidateTable({ candidates, nameOfSolution }: CandidateTablePro
                     <span className="mt-1 block font-normal">
                       <ItemBadges
                         humanReviewRequired={c.humanReviewRequired}
-                        dependsOn={c.dependsOnSolutionId ? (nameOfSolution(c.dependsOnSolutionId) ?? `솔루션 ${c.dependsOnSolutionId}`) : undefined}
+                        dependsOn={dependencyName(c)}
                         warnings={c.warnings}
                         apiOk={c.apiOk}
                       />

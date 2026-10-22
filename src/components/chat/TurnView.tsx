@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { MaturityCard } from '@/components/roadmap/MaturityCard'
 import { RoadmapReport } from '@/components/roadmap/RoadmapReport'
 import { formatKrw } from '@/lib/format'
 import { useChatStore, type Turn } from '@/stores/chatStore'
@@ -38,6 +39,10 @@ export function TurnView({ turn }: { turn: Turn }) {
   const projects = turn.result?.projects ?? []
   // 예산·선행 조건을 만족하는 조합이 없음 (정상 응답)
   const insufficient = !hasRoadmap && turn.result?.portfolio?.insufficient === true
+  // 추천할 과제가 없어 성숙도 진단만 하고 끝난 작업 (승인·등록 없음)
+  const assessmentOnly = turn.status === 'DONE' && !hasRoadmap
+  // 진단만 한 작업과 이력에서 불러온 작업은 TOKEN 없이 result.answer로만 답변이 온다
+  const answer = turn.text || turn.result?.answer || ''
 
   return (
     <div className="flex flex-col gap-2">
@@ -59,14 +64,16 @@ export function TurnView({ turn }: { turn: Turn }) {
 
           {!started && turn.restored && turn.status !== 'FAILED' && (
             <AiMessage>
-              <div className="glass p-2.5 text-sm text-muted">작업 이력에서 불러온 결과예요. 진행 과정과 답변 원문은 남아 있지 않아요.</div>
+              <div className="glass p-2.5 text-sm text-muted">
+                작업 이력에서 불러온 결과예요. {turn.result?.answer ? '진행 과정은 남아 있지 않아요.' : '진행 과정과 답변 원문은 남아 있지 않아요.'}
+              </div>
             </AiMessage>
           )}
 
-          {turn.text && (
+          {answer && (
             <AiMessage label={false}>
               <div className="glass p-2.5 text-sm">
-                <Markdown>{turn.text}</Markdown>
+                <Markdown>{answer}</Markdown>
                 {streaming && <span className="ml-0.5 inline-block h-4 w-[2px] translate-y-0.5 animate-caret bg-ink" aria-hidden="true" />}
               </div>
             </AiMessage>
@@ -98,7 +105,13 @@ export function TurnView({ turn }: { turn: Turn }) {
             </AiMessage>
           )}
 
-          {turn.status === 'DONE' && (
+          {assessmentOnly && turn.result?.maturity && (
+            <AiMessage wide label={false}>
+              <MaturityCard maturity={turn.result.maturity} />
+            </AiMessage>
+          )}
+
+          {turn.status === 'DONE' && hasRoadmap && (
             <AiMessage label={false}>
               <div className="rounded-lg border border-emerald-600/20 bg-emerald-50/80 p-3 text-sm">
                 <p className="font-semibold text-emerald-900">로드맵을 승인하고 프로젝트 {projects.length}건을 등록했습니다.</p>
@@ -120,7 +133,7 @@ export function TurnView({ turn }: { turn: Turn }) {
               <div className="glass p-2.5 text-sm">
                 로드맵을 거절했습니다. 등록된 프로젝트는 없습니다.
                 {turn.decision?.reason && <p className="mt-1 text-[13px] text-muted">사유: {turn.decision.reason}</p>}
-                <p className="mt-1 text-[13px] text-muted">조건을 바꿔 다시 요청할 수 있어요. 예: “인사는 빼고 {turn.approval ? formatKrw(turn.approval.budgetKrw) : '예산'} 안에서 다시 짜 줘”</p>
+                <p className="mt-1 text-[13px] text-muted">조건을 바꿔 다시 요청할 수 있어요. 예: “인사는 빼고 {turn.approval?.budgetKrw != null ? formatKrw(turn.approval.budgetKrw) : '예산 2억 원'} 안에서 다시 짜 줘”</p>
               </div>
             </AiMessage>
           )}

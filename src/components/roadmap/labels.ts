@@ -42,12 +42,14 @@ export const WARNING_LABEL: Record<string, string> = {
 export const VIOLATION_LABEL: Record<string, string> = {
   BUDGET_EXCEEDED: '예산 초과',
   MISSING_DEPENDENCY: '선행 과제 누락',
+  DUPLICATE_PROCESS: '같은 업무 중복',
 }
 
 /** 데이터 신뢰도 — 점수에 넣지 않고 표시만 한다 */
 export const DATA_CONFIDENCE_LABEL: Record<DataConfidence, string> = {
   MEASURED: '실측',
   SURVEY: '설문',
+  EXTRACTED: '문서 추출',
   ASSUMED: '가정',
 }
 

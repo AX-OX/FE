@@ -7,6 +7,8 @@ import { BUDGET_KRW, CANDIDATES, DEPARTMENT_ID, DOCUMENTS, MATURITY, PORTFOLIO, 
  * 백엔드 없이 §8 이벤트 흐름(TOOL → TOKEN → APPROVAL_REQUIRED → 승인 → DONE)을 흉내 낸다.
  * - 작업을 만든 사용자가 아니면 조회·스트림·승인 모두 403
  * - 요청 문구에 '실패'가 들어가면 evaluate 단계에서 FAILED
+ * - '진단'이 들어가면 추천 과제 없이 성숙도 진단만으로 DONE (로드맵 null, 답변은 result.answer)
+ * - '예산'·'억'이 없으면 예산 제약 없이 선정 (budgetKrw·remainingBudgetKrw null)
  * - 작업은 메모리에만 있어서 새로고침하면 이력이 사라진다
  */
 
@@ -19,6 +21,9 @@ interface MockTask {
   createdAt: string
   completedAt: string | null
   failing: boolean
+  assessmentOnly: boolean
+  /** 요청에 예산이 없으면 null */
+  budgetKrw: number | null
   status: TaskStatus
   result: TaskResult | null
   traceUrl: string | null
@@ -87,11 +92,45 @@ function analysisSteps(taskId: string, task: MockTask): Step[] {
     ...tool(taskId, 'retrieve', 'rag_search_docs', '업무 매뉴얼 검색 중'),
     ...tool(taskId, 'retrieve', 'rag_search_docs', '시스템 명세·데이터 품질 문서 검색 중'),
     ...tool(taskId, 'assess', 'business_save_assessment', '성숙도 진단 결과 저장 중', 700),
-    ...tool(taskId, 'discover', 'business_get_solution_catalog', 'AI 솔루션 카탈로그 조회 중'),
-    ...tool(taskId, 'evaluate', 'business_calculate_ax_roi', '후보 8개 AX점수 계산 중'),
-    ...(task.failing ? failSteps(taskId, task) : evaluateRest(taskId, task)),
+    ...tool(taskId, 'discover', 'business_get_solution_candidates', '솔루션 후보 조회 중'),
+    ...(task.assessmentOnly
+      ? assessmentSteps(taskId, task)
+      : [
+          ...tool(taskId, 'evaluate', 'business_calculate_ax_roi', '후보 8개 AX점수 계산 중'),
+          ...(task.failing ? failSteps(taskId, task) : evaluateRest(taskId, task)),
+        ]),
   ]
 }
+
+const ASSESSMENT_ANSWER = [
+  'AX 성숙도 진단을 완료했습니다.',
+  `총점 ${MATURITY.totalScore}점 (기준 ${MATURITY.criteriaVersion}).`,
+  '',
+  '지표가 있는 업무 중 맞는 솔루션이 없어 과제 추천과 로드맵은 제공하지 않습니다. 업무 지표를 입력하면 추천을 받을 수 있어요.',
+].join('\n')
+
+/** '진단' 시나리오: 추천 과제 없이 성숙도만 저장하고 끝난다. TOKEN·승인 없이 DONE만 온다 */
+function assessmentSteps(taskId: string, task: MockTask): Step[] {
+  return [
+    [
+      500,
+      () => {
+        task.result = { maturity: MATURITY, roadmap: null, answer: ASSESSMENT_ANSWER }
+        return emit(taskId, { type: 'DONE', node: 'register', data: { result: task.result } })
+      },
+    ],
+  ]
+}
+
+/** 요청 예산이 없으면 Spring은 예산 제약 없이 선정하고 예산 값을 null로 준다 */
+function portfolioOf(task: MockTask) {
+  if (task.budgetKrw !== null) return PORTFOLIO
+  // 예산이 없으면 예산 초과 위반도 없다
+  const greedy = PORTFOLIO.greedyTop3 && { ...PORTFOLIO.greedyTop3, violations: PORTFOLIO.greedyTop3.violations.filter((v) => v !== 'BUDGET_EXCEEDED') }
+  return { ...PORTFOLIO, budgetKrw: null, remainingBudgetKrw: null, greedyTop3: greedy }
+}
+
+const roadmapNameOf = (task: MockTask) => (task.budgetKrw === null ? ROADMAP_NAME.replace(/ \(예산 [^)]*\)/, '') : ROADMAP_NAME)
 
 /** '실패' 시나리오: 포트폴리오 계산 도구가 재시도 후에도 실패 */
 function failSteps(taskId: string, task: MockTask): Step[] {
@@ -120,8 +159,8 @@ function evaluateRest(taskId: string, task: MockTask): Step[] {
         task.result = {
           maturity: MATURITY,
           candidates: CANDIDATES,
-          portfolio: PORTFOLIO,
-          roadmap: { roadmapName: ROADMAP_NAME, budgetLimitKrw: BUDGET_KRW, totalAllocatedKrw: totalAllocated, approvalStatus: 'PENDING', items: ROADMAP_ITEMS },
+          portfolio: portfolioOf(task),
+          roadmap: { roadmapName: roadmapNameOf(task), budgetLimitKrw: task.budgetKrw, totalAllocatedKrw: totalAllocated, approvalStatus: 'PENDING', items: ROADMAP_ITEMS },
         }
         return emit(taskId, { type: 'TOOL_START', node: 'roadmap', data: { tool: 'roadmap_draft', label: '로드맵 초안 작성 중' } })
       },
@@ -134,10 +173,10 @@ function evaluateRest(taskId: string, task: MockTask): Step[] {
           type: 'APPROVAL_REQUIRED',
           node: 'approval',
           data: {
-            roadmap: { roadmapName: ROADMAP_NAME, budgetLimitKrw: BUDGET_KRW, totalAllocatedKrw: totalAllocated, approvalStatus: 'PENDING' },
+            roadmap: { roadmapName: roadmapNameOf(task), budgetLimitKrw: task.budgetKrw, totalAllocatedKrw: totalAllocated, approvalStatus: 'PENDING' },
             items: ROADMAP_ITEMS,
             totalAllocatedKrw: totalAllocated,
-            budgetKrw: BUDGET_KRW,
+            budgetKrw: task.budgetKrw,
           },
         }),
     ],
@@ -163,7 +202,7 @@ function registerSteps(taskId: string, task: MockTask): Step[] {
       () => {
         task.result = {
           ...task.result,
-          roadmap: { roadmapId: 801, roadmapName: ROADMAP_NAME, budgetLimitKrw: BUDGET_KRW, totalAllocatedKrw: totalAllocated, approvalStatus: 'APPROVED', items },
+          roadmap: { roadmapId: 801, roadmapName: roadmapNameOf(task), budgetLimitKrw: task.budgetKrw, totalAllocatedKrw: totalAllocated, approvalStatus: 'APPROVED', items },
           projects,
         }
         return emit(taskId, { type: 'DONE', node: 'register', data: { result: task.result } })
@@ -182,6 +221,8 @@ export async function createTask(requestText: string): Promise<{ taskId: string 
     createdAt: new Date().toISOString(),
     completedAt: null,
     failing: requestText.includes('실패'),
+    assessmentOnly: requestText.includes('진단'),
+    budgetKrw: /예산|억/.test(requestText) ? BUDGET_KRW : null,
     status: 'QUEUED',
     result: null,
     traceUrl: null,
