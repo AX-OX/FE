@@ -51,7 +51,7 @@ export function LoginPage() {
   }
 
   return (
-    <AuthLayout title="AX Navigator AI" subtitle="업무 데이터로 AI 전환 과제를 찾고, AX점수로 로드맵을 만드세요">
+    <AuthLayout title="AXOX" subtitle="업무 데이터로 AI 전환 과제를 찾고, AX점수로 로드맵을 만드세요">
       <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
         {state.signupEmail && !formError && <FormAlert tone="success">회원가입이 완료되었습니다. 로그인해 주세요.</FormAlert>}
         {state.expired && !formError && <FormAlert tone="info">로그인이 만료되었습니다. 다시 로그인해 주세요.</FormAlert>}

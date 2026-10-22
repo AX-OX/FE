@@ -13,7 +13,7 @@ export function AuthLayout({ title, subtitle, children }: AuthLayoutProps) {
     <AppCard>
       <main className="flex w-full flex-1 flex-col items-center justify-center px-4 py-12">
         <header className="mb-10 flex flex-col items-center gap-8 text-center sm:mb-12 sm:gap-12">
-          <Logo className="h-[37.83px] w-9 text-ink" />
+          <Logo className="h-10 w-auto" />
           <div className="space-y-2">
             <h1 className="text-2xl font-normal">{title}</h1>
             <p className="text-sm text-muted">{subtitle}</p>
