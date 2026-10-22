@@ -70,7 +70,7 @@ export function SignupPage() {
   }
 
   return (
-    <AuthLayout title="계정 만들기" subtitle="AX Navigator AI를 시작하려면 정보를 입력해 주세요">
+    <AuthLayout title="계정 만들기" subtitle="AXOX를 시작하려면 정보를 입력해 주세요">
       <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
         {formError && <FormAlert tone="error">{formError}</FormAlert>}
 

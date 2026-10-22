@@ -46,8 +46,8 @@ export function TasksPage() {
     <AppCard fixedHeight>
       <header className="flex w-full shrink-0 items-center justify-between gap-3 px-5 pt-5 text-[13px] sm:px-8 sm:pt-6">
         <div className="flex items-center gap-2">
-          <Logo className="h-[21px] w-5 text-ink" />
-          <span className="font-semibold">AX Navigator AI</span>
+          <Logo className="h-[22px] w-auto" />
+          <span className="font-semibold">AXOX</span>
         </div>
         <Link to="/" className="font-semibold text-ink hover:underline">
           대화로 돌아가기
