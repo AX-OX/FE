@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ConfirmationCard } from '@/components/confirm/ConfirmationCard'
 import { MaturityCard } from '@/components/roadmap/MaturityCard'
 import { RoadmapReport } from '@/components/roadmap/RoadmapReport'
 import { formatKrw } from '@/lib/format'
@@ -90,6 +91,18 @@ export function TurnView({ turn }: { turn: Turn }) {
           {hasRoadmap && (
             <AiMessage wide label={false}>
               <RoadmapReport turn={turn} />
+            </AiMessage>
+          )}
+
+          {turn.status === 'WAITING_CONFIRMATION' && (
+            <AiMessage wide label={false}>
+              <ConfirmationCard turn={turn} />
+            </AiMessage>
+          )}
+
+          {turn.status === 'RUNNING' && turn.confirmed && turn.nodes.collect === 'pending' && (
+            <AiMessage label={false}>
+              <div className="glass p-2.5 text-sm">회사 데이터를 확정했습니다. 이 데이터로 분석을 이어가요…</div>
             </AiMessage>
           )}
 
