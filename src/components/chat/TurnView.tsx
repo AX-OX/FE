@@ -6,7 +6,6 @@ import { ApprovalCard } from './ApprovalCard'
 import { Markdown } from './Markdown'
 import { AiMessage, UserMessage } from './Message'
 import { ProgressSteps } from './ProgressSteps'
-import { ThinkingBubble } from './ThinkingBubble'
 
 const QUEUED_NOTICE_MS = 8_000
 
@@ -45,8 +44,9 @@ export function TurnView({ turn }: { turn: Turn }) {
       <UserMessage text={turn.requestText} />
 
       {pending ? (
+        // 첫 진행 이벤트 전에도 단계 목록과 로딩을 바로 보여 준다 (서버가 깨어나는 동안 멈춘 것처럼 보이지 않게)
         <AiMessage>
-          <ThinkingBubble />
+          <ProgressSteps turn={turn} />
           {turn.status === 'QUEUED' && turn.taskId && <QueuedNotice />}
         </AiMessage>
       ) : (
