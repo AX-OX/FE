@@ -225,12 +225,29 @@ export interface ApprovalRequest {
 export interface DocumentDetail {
   documentId: number
   title: string
+  /** 사용자가 올린 PDF는 UPLOADED */
   docType: string
   version: string
   /** 민감도 표시용 (검색 권한과 무관) */
   accessLevel: 'PUBLIC' | 'INTERNAL' | 'CONFIDENTIAL'
-  /** 마크다운 원문 (이메일·전화번호는 서버가 마스킹) */
+  /** 마크다운 원문 (이메일·전화번호는 서버가 마스킹). 업로드 문서는 페이지 텍스트를 이은 값 */
   content: string
+  /** 업로드 문서만 있다 (페이지 번호는 1부터). 시드 마크다운 문서는 null */
+  pages?: { page: number; text: string }[] | null
+}
+
+/** UPLOADED: 색인 중 → INDEXED(질문에 사용) 또는 FAILED(텍스트를 읽지 못함, 다시 올릴 수 있음) */
+export type DocumentStatus = 'UPLOADED' | 'INDEXED' | 'FAILED'
+
+/** `GET /api/documents` 항목 (최신순) */
+export interface DocumentSummary {
+  documentId: number
+  title: string
+  docType: string
+  status: DocumentStatus
+  fileSize: number | null
+  pageCount: number | null
+  createdAt: string
 }
 
 /** §8 `GET /api/ai/tasks?mine=true` 목록 항목 (최신순) */
