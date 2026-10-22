@@ -9,10 +9,10 @@
  *  - 거절은 종료 이벤트 없이 서버가 스트림을 닫는다 → 승인 API 202를 받으면 프론트가 REJECTED로 처리
  */
 
-export type TaskStatus = 'QUEUED' | 'RUNNING' | 'WAITING_APPROVAL' | 'DONE' | 'FAILED' | 'REJECTED'
+export type TaskStatus = 'QUEUED' | 'RUNNING' | 'WAITING_CONFIRMATION' | 'WAITING_APPROVAL' | 'DONE' | 'FAILED' | 'REJECTED'
 
-/** §10 Graph Node */
-export type AgentNode = 'collect' | 'retrieve' | 'assess' | 'discover' | 'evaluate' | 'roadmap' | 'approval' | 'register'
+/** §10 Graph Node. extract·confirmation은 기업 데이터를 아직 확정하지 않은 회사에서만 지난다 */
+export type AgentNode = 'extract' | 'confirmation' | 'collect' | 'retrieve' | 'assess' | 'discover' | 'evaluate' | 'roadmap' | 'approval' | 'register'
 
 export type Phase = 'SHORT' | 'MID' | 'LONG'
 export type Scenario = 'low' | 'base' | 'high'
@@ -48,7 +48,8 @@ export interface RoadmapItem {
   humanReviewRequired?: boolean
 }
 
-export type DataConfidence = 'MEASURED' | 'SURVEY' | 'ASSUMED'
+/** 신뢰도 ASSUMED < EXTRACTED(문서 추출) < SURVEY(사용자 입력 포함) < MEASURED */
+export type DataConfidence = 'MEASURED' | 'SURVEY' | 'EXTRACTED' | 'ASSUMED'
 
 /** [보조 지표] 시나리오별 값 */
 export interface ScenarioMetrics {
@@ -58,11 +59,20 @@ export interface ScenarioMetrics {
   threeYearNetKrw: number
 }
 
+/** 후보 식별자. 솔루션 템플릿 하나가 여러 업무에 붙으므로 solutionId만으로는 후보를 구분할 수 없다 */
+export interface CandidateKey {
+  processId: number
+  solutionId: number
+}
+
 /** §7 `/internal/ax/roi` 응답 (AX점수 + 보조 지표) */
 export interface AxScoreResult {
   processId: number
   solutionId: number
+  /** 선행 후보 = (dependsOnProcessId, dependsOnSolutionId) */
   dependsOnSolutionId: number | null
+  /** 템플릿 전환 이전 결과에는 없다 */
+  dependsOnProcessId?: number | null
   /** 선정 기준. Impact × 0.6 + Feasibility × 0.4 (0~100) */
   axScore: number
   impactScore: number
@@ -103,15 +113,16 @@ export interface PortfolioWarning {
 }
 
 /** greedyTop3 위반 사유 */
-export type PortfolioViolation = 'BUDGET_EXCEEDED' | 'MISSING_DEPENDENCY' | (string & {})
+export type PortfolioViolation = 'BUDGET_EXCEEDED' | 'MISSING_DEPENDENCY' | 'DUPLICATE_PROCESS' | (string & {})
 
 /** §7 `/internal/ax/portfolio` 응답 (= `result.portfolio`) */
 export interface Portfolio {
   insufficient: boolean
-  budgetKrw: number
+  /** 요청에 예산이 없으면 null (예산 제약 없이 선정) */
+  budgetKrw: number | null
   totalAxScore: number
   totalFirstYearTcoKrw: number
-  remainingBudgetKrw: number
+  remainingBudgetKrw: number | null
   evaluatedCombinations: number
   validCombinations: number
   /** insufficient면 빈 배열. 화면은 candidates[].selected를 쓴다 */
@@ -119,9 +130,9 @@ export interface Portfolio {
   excluded?: ExcludedProcess[]
   warnings?: PortfolioWarning[]
   /** 설명용 2등 조합 */
-  runnerUp: { solutionIds: number[]; totalAxScore: number } | null
-  /** 설명용: AX점수 상위 3개를 그대로 골랐을 때 */
-  greedyTop3: { solutionIds: number[]; totalAxScore: number; totalFirstYearTcoKrw: number; violations: PortfolioViolation[] } | null
+  runnerUp: { candidates: CandidateKey[]; totalAxScore: number } | null
+  /** 설명용: AX점수 상위 과제를 그대로 골랐을 때 */
+  greedyTop3: { candidates: CandidateKey[]; totalAxScore: number; totalFirstYearTcoKrw: number; violations: PortfolioViolation[] } | null
 }
 
 export type MaturityArea = 'data' | 'infra' | 'automation' | 'aiCapability' | 'governance'
@@ -140,7 +151,8 @@ export interface Roadmap {
   /** 승인·등록 전에는 null */
   roadmapId?: number | null
   roadmapName: string
-  budgetLimitKrw: number
+  /** 요청에 예산이 없으면 null */
+  budgetLimitKrw: number | null
   totalAllocatedKrw: number
   approvalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED'
   items: RoadmapItem[]
@@ -167,7 +179,12 @@ export interface TaskResult {
   maturity?: Maturity
   candidates?: CandidateScore[]
   portfolio?: Portfolio
-  roadmap?: Roadmap
+  /** 추천할 과제가 없어 성숙도 진단만 하고 끝나면 null */
+  roadmap?: Roadmap | null
+  /** Agent 최종 답변. 진단만 하고 끝난 작업은 TOKEN 없이 여기로만 온다 */
+  answer?: string | null
+  /** PDF에서 기업 데이터를 추출·확정한 작업이면 있다 */
+  extraction?: { draftId: number } | null
   projects?: RegisteredProject[]
   approval?: ApprovalRecord
 }
@@ -183,7 +200,7 @@ export interface ApprovalRequiredData {
   roadmap: Omit<Roadmap, 'items'> | Roadmap
   items: RoadmapItem[]
   totalAllocatedKrw: number
-  budgetKrw: number
+  budgetKrw: number | null
 }
 
 interface EventBase<T extends string, D> {
@@ -198,6 +215,7 @@ export type TaskEvent =
   | EventBase<'TOKEN', { text: string }>
   | EventBase<'TOOL_START', { tool: string; label: string }>
   | EventBase<'TOOL_END', { tool: string; label: string; ok: boolean }>
+  | EventBase<'CONFIRMATION_REQUIRED', { draftId?: number }>
   | EventBase<'APPROVAL_REQUIRED', ApprovalRequiredData>
   | EventBase<'DONE', { result: TaskResult }>
   | EventBase<'FAILED', { message: string; traceUrl?: string }>
@@ -210,12 +228,29 @@ export interface ApprovalRequest {
 export interface DocumentDetail {
   documentId: number
   title: string
+  /** 사용자가 올린 PDF는 UPLOADED */
   docType: string
   version: string
   /** 민감도 표시용 (검색 권한과 무관) */
   accessLevel: 'PUBLIC' | 'INTERNAL' | 'CONFIDENTIAL'
-  /** 마크다운 원문 (이메일·전화번호는 서버가 마스킹) */
+  /** 마크다운 원문 (이메일·전화번호는 서버가 마스킹). 업로드 문서는 페이지 텍스트를 이은 값 */
   content: string
+  /** 업로드 문서만 있다 (페이지 번호는 1부터). 시드 마크다운 문서는 null */
+  pages?: { page: number; text: string }[] | null
+}
+
+/** UPLOADED: 색인 중 → INDEXED(질문에 사용) 또는 FAILED(텍스트를 읽지 못함, 다시 올릴 수 있음) */
+export type DocumentStatus = 'UPLOADED' | 'INDEXED' | 'FAILED'
+
+/** `GET /api/documents` 항목 (최신순) */
+export interface DocumentSummary {
+  documentId: number
+  title: string
+  docType: string
+  status: DocumentStatus
+  fileSize: number | null
+  pageCount: number | null
+  createdAt: string
 }
 
 /** §8 `GET /api/ai/tasks?mine=true` 목록 항목 (최신순) */

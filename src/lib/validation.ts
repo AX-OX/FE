@@ -18,7 +18,8 @@ export function validatePassword(value: string): string | undefined {
   if (new TextEncoder().encode(value).length > PASSWORD_MAX_BYTES) return '비밀번호가 너무 깁니다. (한글은 1자에 3바이트, 최대 72바이트)'
 }
 
+/** 가입 이름 = 회사명 (서버가 이 이름으로 회사를 만든다) */
 export function validateName(value: string): string | undefined {
-  if (!value.trim()) return '이름을 입력해 주세요.'
-  if (value.trim().length > 50) return '이름은 50자 이하로 입력해 주세요.'
+  if (!value.trim()) return '회사명을 입력해 주세요.'
+  if (value.trim().length > 50) return '회사명은 50자 이하로 입력해 주세요.'
 }

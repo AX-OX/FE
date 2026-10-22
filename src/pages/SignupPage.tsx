@@ -74,7 +74,7 @@ export function SignupPage() {
       <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
         {formError && <FormAlert tone="error">{formError}</FormAlert>}
 
-        <TextField label="이름" autoComplete="name" placeholder="홍길동" autoFocus {...bind('name')} />
+        <TextField label="회사명" autoComplete="organization" placeholder="가온테크" hint="분석 대상 회사 이름으로 가입해요" autoFocus {...bind('name')} />
         <TextField label="이메일" type="email" autoComplete="email" placeholder="name@company.com" {...bind('email')} />
         <TextField
           label="비밀번호"

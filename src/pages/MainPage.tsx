@@ -1,12 +1,15 @@
+import { useEffect } from 'react'
 import { Link } from 'react-router'
 import { ChatInput } from '@/components/chat/ChatInput'
 import { DocumentPanel } from '@/components/chat/DocumentPanel'
+import { DocumentTray } from '@/components/chat/DocumentTray'
 import { MessageList } from '@/components/chat/MessageList'
 import { Suggestions } from '@/components/chat/Suggestions'
 import { Logo } from '@/components/Logo'
 import { AppCard } from '@/layouts/AppCard'
 import { useAuthStore } from '@/stores/authStore'
 import { isBusy, useChatStore } from '@/stores/chatStore'
+import { useDocumentStore } from '@/stores/documentStore'
 
 export function MainPage() {
   const user = useAuthStore((s) => s.user)
@@ -16,6 +19,14 @@ export function MainPage() {
   const reset = useChatStore((s) => s.reset)
   const lastTurn = turns[turns.length - 1]
   const empty = turns.length === 0
+  const loadDocuments = useDocumentStore((s) => s.load)
+  const upload = useDocumentStore((s) => s.upload)
+  const uploading = useDocumentStore((s) => s.uploading)
+
+  // 회사 문서 목록 (색인 중이면 store가 끝날 때까지 다시 조회한다)
+  useEffect(() => {
+    void loadDocuments()
+  }, [loadDocuments])
 
   // 대화·SSE 정리는 chatStore가, 로그인 화면 이동은 RequireAuth가 한다
   function handleLogout() {
@@ -66,7 +77,8 @@ export function MainPage() {
       )}
 
       <div className={`w-full max-w-[915px] shrink-0 px-4 pb-5 sm:pb-[37px] ${empty ? 'pt-[38px]' : 'pt-3'}`}>
-        <ChatInput onSend={send} disabled={isBusy(lastTurn)} />
+        <DocumentTray />
+        <ChatInput onSend={send} disabled={isBusy(lastTurn)} onAttach={(file) => void upload(file)} attaching={uploading} />
       </div>
 
       <DocumentPanel />

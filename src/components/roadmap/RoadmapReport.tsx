@@ -1,4 +1,5 @@
 import type { Turn } from '@/stores/chatStore'
+import type { AxScoreResult } from '@/types/task'
 import { CandidateTable } from './CandidateTable'
 import { ExcludedList } from './ExcludedList'
 import { MaturityCard } from './MaturityCard'
@@ -24,17 +25,28 @@ export function RoadmapReport({ turn }: { turn: Turn }) {
   const roadmap = turn.result?.roadmap
   const items = roadmap?.items ?? turn.approval?.items ?? []
   const totalAllocatedKrw = roadmap?.totalAllocatedKrw ?? turn.approval?.totalAllocatedKrw ?? 0
-  const budgetKrw = roadmap?.budgetLimitKrw ?? turn.approval?.budgetKrw ?? 0
+  // 예산 없는 요청은 null (예산 제약 없이 선정)
+  const budgetKrw = roadmap ? roadmap.budgetLimitKrw : (turn.approval?.budgetKrw ?? null)
   const name = roadmap?.roadmapName ?? turn.approval?.roadmap.roadmapName ?? 'AX 투자 로드맵'
   // APPROVAL_REQUIRED만 먼저 오면 candidates·portfolio는 아직 없다
   const candidates = turn.result?.candidates ?? []
   const portfolio = turn.result?.portfolio
   const sorted = [...items].sort((a, b) => a.priorityOrder - b.priorityOrder)
   const assumedData = candidates.some((c) => c.dataConfidence === 'ASSUMED')
-  const nameOfSolution = (solutionId: number) =>
-    items.find((i) => i.solutionId === solutionId)?.itemName ?? candidates.find((c) => c.solutionId === solutionId)?.solutionName
   const nameOfProcess = (processId: number) => candidates.find((c) => c.processId === processId)?.processName
   const findCandidate = (processId: number, solutionId: number) => candidates.find((c) => c.processId === processId && c.solutionId === solutionId)
+  /**
+   * 선행 과제명. 템플릿 하나가 여러 업무에 붙으므로 (dependsOnProcessId, dependsOnSolutionId) 쌍으로 찾는다.
+   * dependsOnProcessId가 없는 이전 결과만 solutionId로 찾는다.
+   */
+  const dependencyName = (c: AxScoreResult) => {
+    const solutionId = c.dependsOnSolutionId
+    if (!solutionId) return undefined
+    const processId = c.dependsOnProcessId
+    const match = (x: { processId: number; solutionId: number }) => x.solutionId === solutionId && (processId == null || x.processId === processId)
+    const candidate = candidates.find(match)
+    return items.find(match)?.itemName ?? candidate?.processName ?? candidate?.solutionName ?? `솔루션 ${solutionId}`
+  }
 
   return (
     <section className="glass space-y-3 p-3 sm:p-4" aria-label={name}>
@@ -52,13 +64,12 @@ export function RoadmapReport({ turn }: { turn: Turn }) {
       <div className="grid gap-3 md:grid-cols-3">
         {sorted.map((item) => {
           const candidate = findCandidate(item.processId, item.solutionId)
-          const dependsOnId = candidate?.dependsOnSolutionId
           return (
             <RoadmapItemCard
               key={`${item.processId}-${item.solutionId}`}
               item={item}
               candidate={candidate}
-              dependsOn={dependsOnId ? (nameOfSolution(dependsOnId) ?? `솔루션 ${dependsOnId}`) : undefined}
+              dependsOn={candidate ? dependencyName(candidate) : undefined}
             />
           )
         })}
@@ -66,7 +77,7 @@ export function RoadmapReport({ turn }: { turn: Turn }) {
 
       {turn.result?.maturity && <MaturityCard maturity={turn.result.maturity} />}
       {portfolio && <ExcludedList excluded={portfolio.excluded ?? []} warnings={portfolio.warnings ?? []} nameOfProcess={nameOfProcess} />}
-      {candidates.length > 0 && <CandidateTable candidates={candidates} nameOfSolution={nameOfSolution} />}
+      {candidates.length > 0 && <CandidateTable candidates={candidates} budgetKrw={budgetKrw} dependencyName={dependencyName} />}
     </section>
   )
 }
