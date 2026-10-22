@@ -54,7 +54,8 @@ export function fieldErrors(err: unknown): Record<string, string> {
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().accessToken
   const headers = new Headers(init.headers)
-  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  // FormData(파일 업로드)는 브라우저가 boundary를 붙인 multipart Content-Type을 정한다
+  if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
   let res: Response

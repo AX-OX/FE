@@ -1,6 +1,7 @@
 import { ApiError } from '@/api/client'
 import { useAuthStore } from '@/stores/authStore'
 import type { AgentNode, ApprovalRequest, DocumentDetail, TaskDetail, TaskEvent, TaskResult, TaskStatus, TaskSummary } from '@/types/task'
+import { uploadedDocument } from './documentMock'
 import { BUDGET_KRW, CANDIDATES, DEPARTMENT_ID, DOCUMENTS, MATURITY, PORTFOLIO, ROADMAP_ITEMS, ROADMAP_NAME, SUMMARY_TEXT } from './fixtures'
 
 /**
@@ -282,7 +283,7 @@ export function subscribe(taskId: string, listener: Listener, onError: (status?:
 
 export async function getDocument(documentId: number): Promise<DocumentDetail> {
   await wait(300)
-  const doc = DOCUMENTS[documentId]
+  const doc = uploadedDocument(documentId) ?? DOCUMENTS[documentId]
   if (!doc) throw new ApiError(404, { code: 'NOT_FOUND', message: `문서 ${documentId}를 찾을 수 없습니다.` })
   return doc
 }

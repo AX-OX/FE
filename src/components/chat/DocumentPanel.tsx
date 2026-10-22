@@ -15,7 +15,7 @@ const ACCESS_LEVEL: Record<NonNullable<DocumentDetail['accessLevel']>, { label: 
 
 type LoadState = { id: number } & ({ status: 'error'; message: string } | { status: 'ready'; doc: DocumentDetail })
 
-/** 근거 원문 패널 — `GET /api/docs/{documentId}` */
+/** 근거 원문 패널 — `GET /api/docs/{documentId}`. 업로드 PDF는 AI가 읽은 페이지 텍스트를 보여 준다 (색인 전이면 409) */
 export function DocumentPanel() {
   const documentId = useChatStore((s) => s.openDocumentId)
   const openDocument = useChatStore((s) => s.openDocument)
@@ -58,7 +58,9 @@ export function DocumentPanel() {
         <header className="flex items-start justify-between gap-3 border-b border-ink/6 p-5">
           <div className="min-w-0">
             <p className="text-[11px] font-medium text-muted">
-              근거 문서{state.status === 'ready' && ` · ${state.doc.docType}${state.doc.version ? ` · ${state.doc.version}` : ''}`}
+              {state.status === 'ready' && state.doc.pages
+                ? `올린 PDF · ${state.doc.pages.length}쪽`
+                : `근거 문서${state.status === 'ready' ? ` · ${state.doc.docType}${state.doc.version ? ` · ${state.doc.version}` : ''}` : ''}`}
             </p>
             <div className="flex min-w-0 items-center gap-2">
               <h2 id="doc-title" className="truncate text-base font-semibold">
@@ -90,7 +92,20 @@ export function DocumentPanel() {
               {state.message}
             </p>
           )}
-          {state.status === 'ready' && <Markdown>{state.doc.content}</Markdown>}
+          {state.status === 'ready' &&
+            (state.doc.pages ? (
+              // PDF에서 뽑은 원문 텍스트라 마크다운으로 해석하지 않는다
+              <div className="space-y-5">
+                {state.doc.pages.map((p) => (
+                  <section key={p.page} aria-label={`${p.page}쪽`}>
+                    <p className="mb-1 text-[11px] font-semibold text-muted">p.{p.page}</p>
+                    {p.text.trim() ? <p className="whitespace-pre-wrap">{p.text}</p> : <p className="text-muted">이 쪽에서는 텍스트를 읽지 못했어요.</p>}
+                  </section>
+                ))}
+              </div>
+            ) : (
+              <Markdown>{state.doc.content}</Markdown>
+            ))}
         </div>
       </aside>
     </div>
