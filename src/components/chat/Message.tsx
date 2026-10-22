@@ -24,7 +24,7 @@ interface AiMessageProps {
 export function AiMessage({ children, wide = false, label = true }: AiMessageProps) {
   return (
     <div className={`flex w-full flex-col items-stretch self-start ${wide ? '' : 'sm:w-[572px]'}`}>
-      {label && <SenderLabel>AX Navigator</SenderLabel>}
+      {label && <SenderLabel>AXOX</SenderLabel>}
       {children}
     </div>
   )

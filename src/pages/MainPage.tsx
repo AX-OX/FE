@@ -40,8 +40,8 @@ export function MainPage() {
           <span />
         ) : (
           <div className="flex items-center gap-2">
-            <Logo className="h-[21px] w-5 text-ink" />
-            <span className="font-semibold">AX Navigator AI</span>
+            <Logo className="h-[22px] w-auto" />
+            <span className="font-semibold">AXOX</span>
           </div>
         )}
         <div className="flex items-center gap-3 text-muted">
@@ -65,7 +65,7 @@ export function MainPage() {
         <>
           {/* design-spec §4.2 히어로 — 로고 ↔ 타이틀 48px */}
           <div className="mt-[clamp(32px,12vh,120px)] flex flex-col items-center gap-12 px-4 text-center">
-            <Logo className="h-[37.83px] w-9 text-ink" />
+            <Logo className="h-10 w-auto" />
             <h1 className="text-2xl">AX 전환, 무엇이든 물어보세요</h1>
           </div>
           <div className="mt-auto w-full max-w-[915px] px-4 pt-8">
