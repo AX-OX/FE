@@ -11,8 +11,8 @@
 
 export type TaskStatus = 'QUEUED' | 'RUNNING' | 'WAITING_CONFIRMATION' | 'WAITING_APPROVAL' | 'DONE' | 'FAILED' | 'REJECTED'
 
-/** §10 Graph Node */
-export type AgentNode = 'collect' | 'retrieve' | 'assess' | 'discover' | 'evaluate' | 'roadmap' | 'approval' | 'register'
+/** §10 Graph Node. extract·confirmation은 기업 데이터를 아직 확정하지 않은 회사에서만 지난다 */
+export type AgentNode = 'extract' | 'confirmation' | 'collect' | 'retrieve' | 'assess' | 'discover' | 'evaluate' | 'roadmap' | 'approval' | 'register'
 
 export type Phase = 'SHORT' | 'MID' | 'LONG'
 export type Scenario = 'low' | 'base' | 'high'
@@ -183,6 +183,8 @@ export interface TaskResult {
   roadmap?: Roadmap | null
   /** Agent 최종 답변. 진단만 하고 끝난 작업은 TOKEN 없이 여기로만 온다 */
   answer?: string | null
+  /** PDF에서 기업 데이터를 추출·확정한 작업이면 있다 */
+  extraction?: { draftId: number } | null
   projects?: RegisteredProject[]
   approval?: ApprovalRecord
 }
@@ -213,6 +215,7 @@ export type TaskEvent =
   | EventBase<'TOKEN', { text: string }>
   | EventBase<'TOOL_START', { tool: string; label: string }>
   | EventBase<'TOOL_END', { tool: string; label: string; ok: boolean }>
+  | EventBase<'CONFIRMATION_REQUIRED', { draftId?: number }>
   | EventBase<'APPROVAL_REQUIRED', ApprovalRequiredData>
   | EventBase<'DONE', { result: TaskResult }>
   | EventBase<'FAILED', { message: string; traceUrl?: string }>

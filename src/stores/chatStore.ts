@@ -1,10 +1,15 @@
 import { create } from 'zustand'
 import { ApiError } from '@/api/client'
 import { useAuthStore } from '@/stores/authStore'
+import { confirmExtraction } from '@/api/extraction'
 import { createTask, getTask, submitApproval, subscribeTaskEvents } from '@/api/tasks'
+import type { ExtractionPayload } from '@/types/extraction'
 import type { AgentNode, ApprovalRequest, ApprovalRequiredData, TaskDetail, TaskEvent, TaskResult, TaskStatus, TaskSummary } from '@/types/task'
 
-export const NODE_ORDER: AgentNode[] = ['collect', 'retrieve', 'assess', 'discover', 'evaluate', 'roadmap', 'approval', 'register']
+export const NODE_ORDER: AgentNode[] = ['extract', 'confirmation', 'collect', 'retrieve', 'assess', 'discover', 'evaluate', 'roadmap', 'approval', 'register']
+
+/** 기업 데이터를 아직 확정하지 않은 회사만 지나는 단계. 지나지 않았으면(pending) 화면에서 숨긴다 */
+export const EXTRACTION_NODES: AgentNode[] = ['extract', 'confirmation']
 
 export type NodeState = 'pending' | 'active' | 'done' | 'error'
 
@@ -30,6 +35,12 @@ export interface Turn {
   decision?: ApprovalRequest
   approvalPending: boolean
   approvalError?: string
+  /** CONFIRMATION_REQUIRED (PDF 추출 결과 확정 대기) */
+  confirmation?: { draftId?: number }
+  /** 사용자가 확정 API를 호출했다 (이후 서버의 WAITING_CONFIRMATION 응답은 지난 상태) */
+  confirmed?: boolean
+  confirmPending?: boolean
+  confirmError?: string
   error?: { message: string; traceUrl?: string }
   /** 작업 이력에서 불러온 턴 (진행 과정·답변 텍스트는 남아 있지 않다) */
   restored?: boolean
@@ -40,6 +51,8 @@ interface ChatState {
   openDocumentId: number | null
   send: (text: string) => Promise<void>
   decide: (turnId: string, decision: ApprovalRequest) => Promise<void>
+  /** 확정 대기 중인 작업의 추출 데이터를 확정한다. 성공하면 true */
+  confirmData: (turnId: string, payload: ExtractionPayload) => Promise<boolean>
   /** 작업 이력의 작업을 대화에 다시 불러온다. 진행 중이면 스트림을 다시 구독한다 */
   restore: (task: TaskSummary) => Promise<void>
   openDocument: (documentId: number | null) => void
@@ -49,6 +62,7 @@ interface ChatState {
 const unsubscribers = new Map<string, () => void>()
 
 const LIVE_STATUS: TaskStatus[] = ['QUEUED', 'RUNNING', 'WAITING_CONFIRMATION', 'WAITING_APPROVAL']
+const CONFIRMATION_LABEL = '회사 데이터 확정 대기 중'
 const FINAL_STATUS: TaskStatus[] = ['DONE', 'FAILED', 'REJECTED']
 
 /**
@@ -57,6 +71,7 @@ const FINAL_STATUS: TaskStatus[] = ['DONE', 'FAILED', 'REJECTED']
  */
 function isStale(turn: Turn, server: TaskStatus) {
   if (FINAL_STATUS.includes(turn.status)) return true
+  if (server === 'WAITING_CONFIRMATION' && turn.confirmed) return true
   if (turn.status === 'WAITING_APPROVAL') return turn.decision?.decision !== 'APPROVE'
   return turn.status === 'RUNNING' && server === 'QUEUED'
 }
@@ -67,14 +82,21 @@ function stopStream(turnId: string) {
 }
 
 const initialNodes = () => Object.fromEntries(NODE_ORDER.map((n) => [n, 'pending'])) as Record<AgentNode, NodeState>
-const allDone = () => Object.fromEntries(NODE_ORDER.map((n) => [n, 'done'])) as Record<AgentNode, NodeState>
+
+/** 지나지 않은 추출 단계는 대기로 둔다 (확정한 회사는 추출 없이 collect부터 시작한다) */
+const skipped = (nodes: Record<AgentNode, NodeState>, n: AgentNode) => EXTRACTION_NODES.includes(n) && nodes[n] === 'pending'
+
+/** 모든 단계 완료. extracted면 추출 단계도 완료로 (이력에서 불러온 작업은 result.extraction으로 안다) */
+function allDone(nodes: Record<AgentNode, NodeState>, extracted = false) {
+  return Object.fromEntries(NODE_ORDER.map((n) => [n, skipped(nodes, n) && !extracted ? 'pending' : 'done'])) as Record<AgentNode, NodeState>
+}
 
 /** node를 진행 중으로, 그 앞 단계는 모두 완료로 */
 function advance(nodes: Record<AgentNode, NodeState>, node: AgentNode, state: NodeState = 'active') {
   const idx = NODE_ORDER.indexOf(node)
   const next = { ...nodes }
   NODE_ORDER.forEach((n, i) => {
-    if (i < idx) next[n] = 'done'
+    if (i < idx && !skipped(nodes, n)) next[n] = 'done'
   })
   next[node] = state
   return next
@@ -107,6 +129,14 @@ function reduce(turn: Turn, event: TaskEvent): Turn {
         nodes: running.nodes.roadmap === 'pending' ? advance(running.nodes, 'roadmap') : running.nodes,
         text: running.text + event.data.text,
       }
+    case 'CONFIRMATION_REQUIRED':
+      return {
+        ...running,
+        status: 'WAITING_CONFIRMATION',
+        nodes: advance({ ...running.nodes, extract: 'done' }, 'confirmation'),
+        currentLabel: CONFIRMATION_LABEL,
+        confirmation: { draftId: event.data.draftId },
+      }
     case 'APPROVAL_REQUIRED':
       return {
         ...running,
@@ -119,7 +149,7 @@ function reduce(turn: Turn, event: TaskEvent): Turn {
       return {
         ...running,
         status: 'DONE',
-        nodes: allDone(),
+        nodes: allDone(running.nodes, !!event.data.result?.extraction),
         currentLabel: undefined,
         result: { ...running.result, ...event.data.result },
       }
@@ -134,6 +164,18 @@ function reduce(turn: Turn, event: TaskEvent): Turn {
       }
     }
   }
+}
+
+/** 확정 API 오류 → 화면 문구. 400은 서버 검증 결과(hint.fields·validKeys)를 붙인다 */
+function confirmErrorMessage(err: unknown): string {
+  if (!(err instanceof ApiError)) return '확정하지 못했습니다. 다시 시도해 주세요.'
+  if (err.status === 403) return '작업을 요청한 본인만 확정할 수 있어요.'
+  if (err.status === 409) return '이미 확정했거나 확정 대기 중인 작업이 아니에요. 최신 상태로 다시 불러왔어요.'
+  const fields = err.hint?.fields
+  if (fields && typeof fields === 'object') return `${err.message} (${Object.values(fields as Record<string, string>).slice(0, 3).join(', ')})`
+  const validKeys = err.hint?.validKeys
+  if (Array.isArray(validKeys)) return `${err.message} (사용할 수 있는 값: ${validKeys.join(', ')})`
+  return err.message
 }
 
 export const useChatStore = create<ChatState>()((set, get) => {
@@ -180,7 +222,18 @@ export const useChatStore = create<ChatState>()((set, get) => {
       const t: Turn = current.decision || !recorded ? current : { ...current, decision: { decision: recorded.decision, reason: recorded.reason ?? undefined } }
       switch (detail.status) {
         case 'DONE':
-          return { ...t, status: 'DONE', result, currentLabel: undefined, nodes: allDone() }
+          return { ...t, status: 'DONE', result, currentLabel: undefined, nodes: allDone(t.nodes, !!result?.extraction) }
+        case 'WAITING_CONFIRMATION':
+          if (isStale(t, detail.status) && !force) return { ...t, result }
+          return {
+            ...t,
+            result,
+            status: 'WAITING_CONFIRMATION',
+            currentLabel: CONFIRMATION_LABEL,
+            nodes: advance({ ...t.nodes, extract: 'done' }, 'confirmation'),
+            confirmation: t.confirmation ?? {},
+            confirmed: false,
+          }
         case 'FAILED':
           return {
             ...t,
@@ -313,6 +366,34 @@ export const useChatStore = create<ChatState>()((set, get) => {
         }))
         // 409(이미 처리됨·승인 대기 아님)나 응답을 놓친 경우 → 서버 상태로 화면을 맞춘다
         if (err instanceof ApiError && (err.status === 409 || err.status === 0)) void resync(turnId, taskId, { force: true })
+      }
+    },
+
+    async confirmData(turnId, payload) {
+      const turn = get().turns.find((t) => t.id === turnId)
+      if (!turn?.taskId || turn.status !== 'WAITING_CONFIRMATION' || turn.confirmPending) return false
+      const taskId = turn.taskId
+      update(turnId, (t) => ({ ...t, confirmPending: true, confirmError: undefined }))
+      try {
+        // PUT은 자동 재전송하지 않는다. 실패하면 아래에서 상세 조회로 실제 상태를 확인한다
+        await confirmExtraction(taskId, payload)
+        update(turnId, (t) => ({
+          ...t,
+          status: 'RUNNING',
+          confirmed: true,
+          confirmPending: false,
+          currentLabel: '확정한 데이터로 분석 중',
+          nodes: { ...t.nodes, confirmation: 'done' },
+        }))
+        // 확정 대기 중 스트림이 끊겨 있었으면 다시 붙는다
+        if (!unsubscribers.has(turnId)) listen(turnId, taskId)
+        void resync(turnId, taskId)
+        return true
+      } catch (err) {
+        update(turnId, (t) => ({ ...t, confirmPending: false, confirmError: confirmErrorMessage(err) }))
+        // 409(이미 확정·확정 대기 아님)나 응답을 놓친 경우 → 서버 상태로 화면을 맞춘다
+        if (err instanceof ApiError && (err.status === 409 || err.status === 0)) void resync(turnId, taskId, { force: true })
+        return false
       }
     },
 

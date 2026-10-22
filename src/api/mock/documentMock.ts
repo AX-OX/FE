@@ -66,6 +66,13 @@ export async function listDocuments(): Promise<DocumentSummary[]> {
   return [...own.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), ...seed]
 }
 
+/** 현재 사용자가 올려 색인이 끝난 문서 (추출 mock이 근거로 쓴다) */
+export function indexedUploads(): DocumentSummary[] {
+  return mine()
+    .map((u) => u.summary)
+    .filter((d) => d.status === 'INDEXED')
+}
+
 /** 업로드 문서 원문. 업로드 문서가 아니면 undefined (시드 문서는 taskMock이 준다) */
 export function uploadedDocument(documentId: number): DocumentDetail | undefined {
   const upload = uploads.get(documentId)
