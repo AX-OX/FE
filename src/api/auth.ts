@@ -20,7 +20,7 @@ export interface LoginRequest {
 /**
  * §8 `POST /api/auth/signup` `{ email, password, name }` → 201 `{ userId }`
  * 이메일 중복 409 DUPLICATE_EMAIL, 입력값 오류 400 VALIDATION_ERROR.
- * (MVP는 기업 1곳이므로 companyId는 서버가 기본 기업으로 지정)
+ * 서버가 name을 회사명으로 하는 기업을 새로 만들어 연결한다.
  */
 export interface SignupRequest {
   email: string

@@ -48,7 +48,7 @@ interface ChatState {
 
 const unsubscribers = new Map<string, () => void>()
 
-const LIVE_STATUS: TaskStatus[] = ['QUEUED', 'RUNNING', 'WAITING_APPROVAL']
+const LIVE_STATUS: TaskStatus[] = ['QUEUED', 'RUNNING', 'WAITING_CONFIRMATION', 'WAITING_APPROVAL']
 const FINAL_STATUS: TaskStatus[] = ['DONE', 'FAILED', 'REJECTED']
 
 /**
@@ -347,4 +347,4 @@ useAuthStore.subscribe((state, prev) => {
   if (prev.accessToken && !state.accessToken) useChatStore.getState().reset()
 })
 
-export const isBusy = (turn?: Turn) => !!turn && (turn.status === 'QUEUED' || turn.status === 'RUNNING' || turn.status === 'WAITING_APPROVAL')
+export const isBusy = (turn?: Turn) => !!turn && LIVE_STATUS.includes(turn.status)
