@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NODE_LABEL } from '@/components/roadmap/labels'
-import { NODE_ORDER, type NodeState, type Turn } from '@/stores/chatStore'
+import { EXTRACTION_NODES, NODE_ORDER, type NodeState, type Turn } from '@/stores/chatStore'
 
 function StepIcon({ state }: { state: NodeState }) {
   if (state === 'done')
@@ -19,11 +19,15 @@ const STATE_TEXT: Record<NodeState, string> = { done: '완료', active: '진행 
 /** §8 TOOL_START/TOOL_END 이벤트로 그리는 진행 표시. 분석이 끝나면 한 줄로 접힌다. */
 export function ProgressSteps({ turn }: { turn: Turn }) {
   const running = turn.status === 'QUEUED' || turn.status === 'RUNNING'
+  // 사용자 확정·승인을 기다리는 중 (완료처럼 보이지 않게 대기 문구를 쓴다)
+  const waiting = turn.status === 'WAITING_CONFIRMATION' || turn.status === 'WAITING_APPROVAL'
   const [userOpen, setUserOpen] = useState<boolean | null>(null)
   const open = userOpen ?? running
 
-  // 승인 전에는 등록 단계를 보여줄 필요가 없다
-  const nodes = turn.decision?.decision === 'APPROVE' ? NODE_ORDER : NODE_ORDER.filter((n) => n !== 'register')
+  // 승인 전에는 등록 단계를, 기업 데이터를 이미 확정한 회사는 추출·확정 단계를 보여줄 필요가 없다
+  const nodes = NODE_ORDER.filter(
+    (n) => (n !== 'register' || turn.decision?.decision === 'APPROVE') && !(EXTRACTION_NODES.includes(n) && turn.nodes[n] === 'pending'),
+  )
   const doneCount = nodes.filter((n) => turn.nodes[n] === 'done').length
   const toolCount = turn.tools.length
   // 분석이 시작됐는데 아직 진행 이벤트가 없으면 첫 단계를 진행 중으로 보여 준다
@@ -40,9 +44,13 @@ export function ProgressSteps({ turn }: { turn: Turn }) {
         className="flex w-full items-center justify-between gap-2 text-left"
       >
         <span className="flex min-w-0 items-center gap-2">
-          {running ? <StepIcon state="active" /> : <StepIcon state={turn.status === 'FAILED' ? 'error' : 'done'} />}
+          {running ? <StepIcon state="active" /> : <StepIcon state={turn.status === 'FAILED' ? 'error' : waiting ? 'pending' : 'done'} />}
           <span className="truncate font-medium">
-            {running ? (turn.currentLabel ?? waitingLabel) : `분석 과정 ${doneCount}/${nodes.length}단계 · 도구 호출 ${toolCount}회`}
+            {running
+              ? (turn.currentLabel ?? waitingLabel)
+              : waiting && turn.currentLabel
+                ? `${turn.currentLabel} · ${doneCount}/${nodes.length}단계`
+                : `분석 과정 ${doneCount}/${nodes.length}단계 · 도구 호출 ${toolCount}회`}
           </span>
         </span>
         <svg viewBox="0 0 16 16" className={`size-4 shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">

@@ -1,7 +1,8 @@
 import { ApiError } from '@/api/client'
 import { useAuthStore } from '@/stores/authStore'
 import type { AgentNode, ApprovalRequest, DocumentDetail, TaskDetail, TaskEvent, TaskResult, TaskStatus, TaskSummary } from '@/types/task'
-import { uploadedDocument } from './documentMock'
+import type { ExtractionDraft, ExtractionPayload } from '@/types/extraction'
+import { indexedUploads, uploadedDocument } from './documentMock'
 import { BUDGET_KRW, CANDIDATES, DEPARTMENT_ID, DOCUMENTS, MATURITY, PORTFOLIO, ROADMAP_ITEMS, ROADMAP_NAME, SUMMARY_TEXT } from './fixtures'
 
 /**
@@ -10,6 +11,8 @@ import { BUDGET_KRW, CANDIDATES, DEPARTMENT_ID, DOCUMENTS, MATURITY, PORTFOLIO, 
  * - 요청 문구에 '실패'가 들어가면 evaluate 단계에서 FAILED
  * - '진단'이 들어가면 추천 과제 없이 성숙도 진단만으로 DONE (로드맵 null, 답변은 result.answer)
  * - '예산'·'억'이 없으면 예산 제약 없이 선정 (budgetKrw·remainingBudgetKrw null)
+ * - 데모 계정이 아닌 계정(새 회사)은 첫 작업에서 PDF 추출 → CONFIRMATION_REQUIRED → 확정 후 분석을 이어간다.
+ *   읽기가 끝난 업로드 PDF가 없으면 FAILED. 확정은 계정당 한 번이다
  * - 작업은 메모리에만 있어서 새로고침하면 이력이 사라진다
  */
 
@@ -31,9 +34,12 @@ interface MockTask {
   listeners: Set<Listener>
   timers: number[]
   started: boolean
+  draft?: ExtractionDraft
 }
 
 const tasks = new Map<string, MockTask>()
+/** 기업 데이터를 확정한 사용자 (데모 계정은 시드 데이터가 있어 처음부터 확정) */
+const confirmedOwners = new Set<number | undefined>([1])
 const TRACE_URL = 'https://smith.langchain.com/mock-trace'
 // 서버가 준 값이라고 가정 (프론트에서 합산하지 않는다)
 const totalAllocated = PORTFOLIO.totalFirstYearTcoKrw
@@ -74,12 +80,56 @@ function run(task: MockTask, steps: Step[]) {
       window.setTimeout(() => {
         const event = make()
         if (event.type === 'APPROVAL_REQUIRED') task.status = 'WAITING_APPROVAL'
+        if (event.type === 'CONFIRMATION_REQUIRED') task.status = 'WAITING_CONFIRMATION'
         if (event.type === 'DONE') task.status = 'DONE'
         if (event.type === 'FAILED') task.status = 'FAILED'
         if (event.type === 'DONE' || event.type === 'FAILED') task.completedAt = event.ts
         task.listeners.forEach((l) => l(event))
       }, at),
     )
+  }
+}
+
+/** 미확정 회사: 업로드 PDF에서 추출 → draft 저장 → 확정 대기 */
+function extractionSteps(taskId: string, task: MockTask): Step[] {
+  const documents = indexedUploads()
+  if (!documents.length) {
+    return [
+      [600, () => emit(taskId, { type: 'FAILED', node: 'extract', data: { message: 'INSUFFICIENT_DATA: 기업 데이터를 추출할 PDF를 먼저 업로드해 주세요.' } })],
+    ]
+  }
+  return [
+    ...tool(taskId, 'extract', 'rag_get_document_chunks', '올린 PDF 읽는 중', 300),
+    ...tool(taskId, 'extract', 'business_save_extraction', '추출한 회사 데이터 저장 중', 900),
+    [
+      300,
+      () => {
+        task.draft = mockDraft(documents.map((d) => d.documentId))
+        return emit(taskId, { type: 'CONFIRMATION_REQUIRED', node: 'confirmation', data: { draftId: task.draft.draftId } })
+      },
+    ],
+  ]
+}
+
+let nextDraftId = 7001
+
+/** 업무 2개(지표는 1개만), 시스템 1개. 지표가 없는 업무와 유형 수정 화면을 확인하기 위한 값 */
+function mockDraft(documentIds: number[]): ExtractionDraft {
+  const source = { documentId: documentIds[0], page: 1 }
+  return {
+    draftId: nextDraftId++,
+    status: 'DRAFT',
+    documentIds,
+    payload: {
+      company: { industry: null, employeeCount: null },
+      departments: [{ key: 'd1', name: '인사팀' }],
+      processes: [
+        { key: 'p1', departmentKey: 'd1', name: '사내 규정 문의 응답', purpose: '반복되는 규정 문의에 답한다', steps: [], standardizationLevel: null, requiresApproval: false, exceptionRules: null, workType: 'KNOWLEDGE_QA', source },
+        { key: 'p2', departmentKey: 'd1', name: '전자 결재 처리', purpose: null, steps: [], standardizationLevel: null, requiresApproval: true, exceptionRules: null, workType: 'OTHER', source: { documentId: documentIds[0], page: 2 } },
+      ],
+      metrics: [{ processKey: 'p1', monthlyCount: 120, avgMinutes: 15, hourlyLaborCostKrw: 35000, errorRate: null, dataSource: 'EXTRACTED', source }],
+      systems: [{ key: 's1', name: '그룹웨어', type: 'GROUPWARE', apiAvailable: false, dataAccessLevel: 'RESTRICTED', cloudBased: false, processKeys: ['p2'] }],
+    },
   }
 }
 
@@ -257,6 +307,31 @@ export async function submitApproval(taskId: string, { decision, reason }: Appro
   run(task, registerSteps(taskId, task))
 }
 
+export async function getExtraction(taskId: string): Promise<ExtractionDraft> {
+  await wait(250)
+  const task = find(taskId)
+  if (!task.draft) throw new ApiError(404, { code: 'NOT_FOUND', message: '추출 결과를 찾을 수 없습니다.' })
+  return task.draft
+}
+
+export async function confirmExtraction(taskId: string, payload: ExtractionPayload): Promise<void> {
+  await wait(500)
+  const task = find(taskId)
+  if (task.status !== 'WAITING_CONFIRMATION' || !task.draft) {
+    throw new ApiError(409, { code: 'INVALID_STATE', message: '확정 대기 중인 작업만 확정할 수 있습니다.' })
+  }
+  if (confirmedOwners.has(task.ownerId)) throw new ApiError(409, { code: 'INVALID_STATE', message: '이미 기업 데이터가 확정되었습니다.' })
+  const departmentKeys = payload.departments.map((d) => d.key)
+  const broken = payload.processes.find((p) => !departmentKeys.includes(p.departmentKey))
+  if (broken) {
+    throw new ApiError(400, { code: 'VALIDATION_ERROR', message: `업무 ${broken.key}의 부서 ${broken.departmentKey}가 없습니다.`, hint: { validKeys: departmentKeys } })
+  }
+  confirmedOwners.add(task.ownerId)
+  task.draft = { ...task.draft, status: 'CONFIRMED', payload }
+  task.status = 'RUNNING'
+  run(task, analysisSteps(taskId, task))
+}
+
 export async function listMyTasks(): Promise<TaskSummary[]> {
   await wait(250)
   const me = currentUserId()
@@ -276,7 +351,7 @@ export function subscribe(taskId: string, listener: Listener, onError: (status?:
   if (!task.started) {
     task.started = true
     task.status = 'RUNNING'
-    run(task, analysisSteps(taskId, task))
+    run(task, confirmedOwners.has(task.ownerId) ? analysisSteps(taskId, task) : extractionSteps(taskId, task))
   }
   return () => task.listeners.delete(listener)
 }
