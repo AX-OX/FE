@@ -26,6 +26,10 @@ export function ProgressSteps({ turn }: { turn: Turn }) {
   const nodes = turn.decision?.decision === 'APPROVE' ? NODE_ORDER : NODE_ORDER.filter((n) => n !== 'register')
   const doneCount = nodes.filter((n) => turn.nodes[n] === 'done').length
   const toolCount = turn.tools.length
+  // 분석이 시작됐는데 아직 진행 이벤트가 없으면 첫 단계를 진행 중으로 보여 준다
+  const warmingUp = turn.status === 'RUNNING' && nodes.every((n) => turn.nodes[n] === 'pending')
+  const stateOf = (node: (typeof nodes)[number]): NodeState => (warmingUp && node === nodes[0] ? 'active' : turn.nodes[node])
+  const waitingLabel = !turn.taskId ? '요청을 보내는 중' : turn.status === 'QUEUED' ? '분석 대기 중' : '분석 준비 중'
 
   return (
     <div className="glass p-2.5 text-[13px]">
@@ -38,7 +42,7 @@ export function ProgressSteps({ turn }: { turn: Turn }) {
         <span className="flex min-w-0 items-center gap-2">
           {running ? <StepIcon state="active" /> : <StepIcon state={turn.status === 'FAILED' ? 'error' : 'done'} />}
           <span className="truncate font-medium">
-            {running ? (turn.currentLabel ?? '분석 준비 중') : `분석 과정 ${doneCount}/${nodes.length}단계 · 도구 호출 ${toolCount}회`}
+            {running ? (turn.currentLabel ?? waitingLabel) : `분석 과정 ${doneCount}/${nodes.length}단계 · 도구 호출 ${toolCount}회`}
           </span>
         </span>
         <svg viewBox="0 0 16 16" className={`size-4 shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
@@ -49,7 +53,7 @@ export function ProgressSteps({ turn }: { turn: Turn }) {
       {open && (
         <ol className="mt-2.5 space-y-1.5 border-t border-white pt-2.5">
           {nodes.map((node) => {
-            const state = turn.nodes[node]
+            const state = stateOf(node)
             const tools = turn.tools.filter((t) => t.node === node)
             return (
               <li key={node} className="flex items-start gap-2.5">
