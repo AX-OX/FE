@@ -85,11 +85,12 @@ export function ChatInput({ onSend, disabled = false, onAttach, attaching = fals
         id="chat-input"
         ref={ref}
         rows={1}
+        maxLength={4000}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
         disabled={disabled}
-        placeholder={disabled ? '분석이 끝나면 다음 요청을 보낼 수 있어요' : 'AX 전환에 대해 무엇이든 물어보세요'}
+        placeholder={disabled ? '답변을 준비하고 있어요' : 'AX 질문이나 분석 요청을 입력해 주세요'}
         className="max-h-40 min-w-0 flex-1 resize-none self-center bg-transparent py-1 pl-1 text-sm leading-normal outline-none placeholder:text-muted disabled:cursor-not-allowed"
       />
       <button

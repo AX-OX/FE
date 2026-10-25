@@ -15,9 +15,10 @@ export function MainPage() {
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const turns = useChatStore((s) => s.turns)
+  const referenceTaskId = useChatStore((s) => s.referenceTaskId)
   const send = useChatStore((s) => s.send)
   const reset = useChatStore((s) => s.reset)
-  const lastTurn = turns[turns.length - 1]
+  const referenceTurn = turns.find((turn) => turn.taskId === referenceTaskId)
   const empty = turns.length === 0
   const loadDocuments = useDocumentStore((s) => s.load)
   const upload = useDocumentStore((s) => s.upload)
@@ -78,7 +79,12 @@ export function MainPage() {
 
       <div className={`w-full max-w-[915px] shrink-0 px-4 pb-5 sm:pb-[37px] ${empty ? 'pt-[38px]' : 'pt-3'}`}>
         <DocumentTray />
-        <ChatInput onSend={send} disabled={isBusy(lastTurn)} onAttach={(file) => void upload(file)} attaching={uploading} />
+        {referenceTurn && (
+          <p className="mb-2 truncate px-1 text-xs text-muted" title={referenceTurn.requestText}>
+            이 분석을 참고해 답변해요: {referenceTurn.requestText}
+          </p>
+        )}
+        <ChatInput onSend={send} disabled={turns.some(isBusy)} onAttach={(file) => void upload(file)} attaching={uploading} />
       </div>
 
       <DocumentPanel />

@@ -45,6 +45,26 @@ export function TurnView({ turn }: { turn: Turn }) {
   // 진단만 한 작업과 이력에서 불러온 작업은 TOKEN 없이 result.answer로만 답변이 온다
   const answer = turn.text || turn.result?.answer || ''
 
+  if (turn.kind === 'message') {
+    return (
+      <div className="flex flex-col gap-2">
+        <UserMessage text={turn.requestText} />
+        <AiMessage>
+          {turn.replyPending ? (
+            <p role="status" className="glass p-2.5 text-sm text-muted">답변을 준비하고 있어요…</p>
+          ) : turn.error ? (
+            <div role="alert" className="rounded-lg border border-danger/30 bg-white/80 p-3 text-sm">
+              <p className="font-semibold text-danger">답변을 준비하지 못했어요.</p>
+              <p className="mt-1 text-[13px]">{turn.error.message}</p>
+            </div>
+          ) : (
+            <div className="glass p-2.5 text-sm"><Markdown>{answer}</Markdown></div>
+          )}
+        </AiMessage>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-2">
       <UserMessage text={turn.requestText} />
