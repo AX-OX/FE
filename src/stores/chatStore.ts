@@ -2,7 +2,9 @@ import { create } from 'zustand'
 import { ApiError } from '@/api/client'
 import { useAuthStore } from '@/stores/authStore'
 import { confirmExtraction } from '@/api/extraction'
-import { createTask, getTask, submitApproval, subscribeTaskEvents } from '@/api/tasks'
+import { getTask, submitApproval, subscribeTaskEvents } from '@/api/tasks'
+import { sendChatMessage } from '@/api/chat'
+import type { ChatIntent, ChatMessage } from '@/types/chat'
 import type { ExtractionPayload } from '@/types/extraction'
 import type { AgentNode, ApprovalRequest, ApprovalRequiredData, TaskDetail, TaskEvent, TaskResult, TaskStatus, TaskSummary } from '@/types/task'
 
@@ -20,10 +22,13 @@ export interface ToolLog {
   ok?: boolean
 }
 
-/** 사용자 요청 1개 + 그에 대한 AI 작업 1개 */
+/** One message may produce a normal reply or a new analysis. */
 export interface Turn {
   id: string
   requestText: string
+  kind?: 'message' | 'analysis'
+  intent?: ChatIntent
+  replyPending?: boolean
   taskId?: string
   status: TaskStatus
   nodes: Record<AgentNode, NodeState>
@@ -48,6 +53,7 @@ export interface Turn {
 
 interface ChatState {
   turns: Turn[]
+  referenceTaskId: string | null
   openDocumentId: number | null
   send: (text: string) => Promise<void>
   decide: (turnId: string, decision: ApprovalRequest) => Promise<void>
@@ -302,28 +308,51 @@ export const useChatStore = create<ChatState>()((set, get) => {
 
   return {
     turns: [],
+    referenceTaskId: null,
     openDocumentId: null,
 
     async send(text) {
       const requestText = text.trim()
-      if (!requestText) return
+      const previous = get().turns
+      if (!requestText || previous.some((turn) => turn.replyPending)) return
+      const referenceTaskId = get().referenceTaskId ?? undefined
+      // Bounded conversational text only. The BE loads authorized results itself.
+      const history: ChatMessage[] = []
+      let remaining = 16000
+      for (const turn of [...previous].reverse()) {
+        if (turn.status === 'FAILED' || turn.replyPending) continue
+        const messages: ChatMessage[] = [{ role: 'user', content: turn.requestText.slice(0, 4000) }]
+        const answer = turn.text || turn.result?.answer
+        if (answer) messages.push({ role: 'assistant', content: answer.slice(0, 4000) })
+        const length = messages.reduce((sum, message) => sum + message.content.length, 0)
+        if (history.length + messages.length > 12 || length > remaining) break
+        history.unshift(...messages)
+        remaining -= length
+      }
       const turnId = crypto.randomUUID()
       set((s) => ({
         turns: [
           ...s.turns,
-          { id: turnId, requestText, status: 'QUEUED', nodes: initialNodes(), tools: [], text: '', approvalPending: false },
+          { id: turnId, requestText, kind: 'message', replyPending: true, status: 'QUEUED', nodes: initialNodes(), tools: [], text: '', approvalPending: false },
         ],
       }))
 
       try {
-        const { taskId } = await createTask(requestText)
-        update(turnId, (t) => ({ ...t, taskId }))
-        listen(turnId, taskId)
+        const response = await sendChatMessage({ message: requestText, history, referenceTaskId })
+        if (!get().turns.some((turn) => turn.id === turnId)) return
+        if (response.intent === 'ANALYZE' && response.taskId) {
+          set({ referenceTaskId: response.taskId })
+          update(turnId, (t) => ({ ...t, kind: 'analysis', replyPending: false, intent: response.intent, taskId: response.taskId! }))
+          listen(turnId, response.taskId)
+        } else {
+          update(turnId, (t) => ({ ...t, kind: 'message', replyPending: false, intent: response.intent, status: 'DONE', text: response.message }))
+        }
       } catch (err) {
         update(turnId, (t) => ({
           ...t,
+          replyPending: false,
           status: 'FAILED',
-          error: { message: err instanceof ApiError ? err.message : '작업을 시작하지 못했습니다.' },
+          error: { message: err instanceof ApiError ? err.message : '답변을 준비하지 못했습니다. 잠시 후 다시 시도해 주세요.' },
         }))
       }
     },
@@ -399,15 +428,19 @@ export const useChatStore = create<ChatState>()((set, get) => {
 
     async restore({ taskId, requestText }) {
       // 이미 대화에 있는 작업이면 그대로 둔다
-      if (get().turns.some((t) => t.taskId === taskId)) return
+      if (get().turns.some((t) => t.taskId === taskId)) {
+        set({ referenceTaskId: taskId })
+        return
+      }
       const turnId = crypto.randomUUID()
       set((s) => ({
         turns: [
           ...s.turns,
-          { id: turnId, requestText, taskId, status: 'QUEUED', nodes: initialNodes(), tools: [], text: '', approvalPending: false, restored: true },
+          { id: turnId, requestText, kind: 'analysis', taskId, status: 'QUEUED', nodes: initialNodes(), tools: [], text: '', approvalPending: false, restored: true },
         ],
       }))
       const status = await resync(turnId, taskId, { reportError: true })
+      if (status && get().turns.some((turn) => turn.id === turnId)) set({ referenceTaskId: taskId })
       if (status && LIVE_STATUS.includes(status)) listen(turnId, taskId)
     },
 
@@ -418,7 +451,7 @@ export const useChatStore = create<ChatState>()((set, get) => {
     reset() {
       unsubscribers.forEach((unsubscribe) => unsubscribe())
       unsubscribers.clear()
-      set({ turns: [], openDocumentId: null })
+      set({ turns: [], referenceTaskId: null, openDocumentId: null })
     },
   }
 })
@@ -428,4 +461,5 @@ useAuthStore.subscribe((state, prev) => {
   if (prev.accessToken && !state.accessToken) useChatStore.getState().reset()
 })
 
-export const isBusy = (turn?: Turn) => !!turn && LIVE_STATUS.includes(turn.status)
+// Analysis can run while the user asks read-only follow-up questions.
+export const isBusy = (turn?: Turn) => !!turn?.replyPending

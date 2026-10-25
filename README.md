@@ -125,3 +125,10 @@ Mock 선정 결과: 코드 리뷰 보조 에이전트 · 사내 규정 Q&A 검�
 - 솔루션 템플릿 하나가 여러 업무에 붙을 수 있어 후보는 `(processId, solutionId)` 쌍으로 구분한다. 선행 과제는 `(dependsOnProcessId, dependsOnSolutionId)`로 찾는다.
 - `portfolio.warnings`(지표 부족, `missingMonths`)는 제외 업무 목록에 함께 표시하고, `insufficient: true`는 "조건을 만족하는 조합이 없음" 안내로 보여 준다.
 - 작업 이력의 `createdAt`·`completedAt`은 오프셋 없는 로컬 시각이라 그대로 로컬 시각으로 읽는다 (Z를 붙이지 않는다).
+# 질문 답변과 분석 실행
+
+채팅 입력은 `POST /api/ai/chat/messages`에 `{message, history, referenceTaskId?}`로 보낸다. 가장 최근 생성했거나 작업 이력에서 선택한 분석의 ID를 보내며 결과는 BE가 권한 확인 후 조회한다. 입력창 위에 참조할 분석을 표시한다. 일반 답변에는 분석 단계·SSE·승인 카드를 표시하지 않고, ANALYZE와 실제 taskId가 함께 반환된 경우에만 기존 분석 화면을 사용한다. 진행 중인 분석에 대해서도 질문할 수 있다.
+
+현재 대화 이력은 화면 세션에만 유지한다. 새로고침 후 일반 메시지를 복원하지 않는다. 기존 분석은 작업 이력에서 불러올 수 있다. API 실패 시 `/tasks`로 자동 전환하거나 POST를 자동 재전송하지 않는다.
+
+`npm test`는 실제 HTTP 클라이언트·대화 store·메시지 렌더러를 검증한다. `npm run lint`, `npm run build`로 정적 검사와 빌드를 확인한다. `VITE_USE_MOCK=true`는 UI 검증용이며 production의 의미 분류는 AI가 수행한다. AI → BE → FE 순서로 배포한다.
