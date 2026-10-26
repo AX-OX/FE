@@ -21,6 +21,12 @@ export function listMyTasks(): Promise<TaskSummary[]> {
   return request('/api/ai/tasks?mine=true')
 }
 
+/** `DELETE /api/ai/tasks/{taskId}` → 204. 종료된(DONE·FAILED·REJECTED) 본인 작업만, 진행 중이면 409 */
+export function deleteTask(taskId: string): Promise<void> {
+  if (USE_MOCK) return mock.deleteTask(taskId)
+  return request(`/api/ai/tasks/${taskId}`, { method: 'DELETE' })
+}
+
 /** `POST /api/ai/tasks/{taskId}/approval` → 202 (작업 요청자 본인만) */
 export function submitApproval(taskId: string, body: ApprovalRequest): Promise<void> {
   if (USE_MOCK) return mock.submitApproval(taskId, body)

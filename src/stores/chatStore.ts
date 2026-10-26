@@ -61,6 +61,8 @@ interface ChatState {
   confirmData: (turnId: string, payload: ExtractionPayload) => Promise<boolean>
   /** 작업 이력의 작업을 대화에 다시 불러온다. 진행 중이면 스트림을 다시 구독한다 */
   restore: (task: TaskSummary) => Promise<void>
+  /** 작업 이력에서 삭제한 작업을 대화와 참조 대상에서 뺀다 (삭제된 작업은 서버가 404로 답한다) */
+  forget: (taskId: string) => void
   openDocument: (documentId: number | null) => void
   reset: () => void
 }
@@ -442,6 +444,17 @@ export const useChatStore = create<ChatState>()((set, get) => {
       const status = await resync(turnId, taskId, { reportError: true })
       if (status && get().turns.some((turn) => turn.id === turnId)) set({ referenceTaskId: taskId })
       if (status && LIVE_STATUS.includes(status)) listen(turnId, taskId)
+    },
+
+    forget(taskId) {
+      for (const turn of get().turns.filter((t) => t.taskId === taskId)) {
+        unsubscribers.get(turn.id)?.()
+        unsubscribers.delete(turn.id)
+      }
+      set((s) => ({
+        turns: s.turns.filter((t) => t.taskId !== taskId),
+        referenceTaskId: s.referenceTaskId === taskId ? null : s.referenceTaskId,
+      }))
     },
 
     openDocument(documentId) {
