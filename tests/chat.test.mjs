@@ -144,3 +144,16 @@ test('history is bounded and resetting conversation drops in-flight UI subscript
   assert.equal(useChatStore.getState().turns.length, 0)
   assert.ok(calls.every((call) => call.url === '/api/ai/chat/messages'))
 })
+
+test('forgetting a deleted task drops its turns and stops referencing it', async () => {
+  reply = { intent: 'ANALYZE', message: '새 분석', taskId }
+  await useChatStore.getState().send('새 분석해줘')
+  await setImmediate()
+  assert.equal(useChatStore.getState().referenceTaskId, taskId)
+  useChatStore.getState().forget(taskId)
+  assert.equal(useChatStore.getState().turns.some((turn) => turn.taskId === taskId), false)
+  assert.equal(useChatStore.getState().referenceTaskId, null)
+  reply = { intent: 'SERVICE_QA', message: '일반 답변입니다.', taskId: null }
+  await useChatStore.getState().send('AX가 뭐야?')
+  assert.equal(calls.filter((call) => call.url === '/api/ai/chat/messages').at(-1).body.referenceTaskId, undefined)
+})

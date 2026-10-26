@@ -341,6 +341,16 @@ export async function listMyTasks(): Promise<TaskSummary[]> {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 }
 
+export async function deleteTask(taskId: string): Promise<void> {
+  await wait(250)
+  const task = find(taskId)
+  if (!['DONE', 'FAILED', 'REJECTED'].includes(task.status)) {
+    throw new ApiError(409, { code: 'INVALID_STATE', message: '진행 중인 작업은 삭제할 수 없습니다. 작업이 완료·실패·거절된 후 다시 시도해 주세요.' })
+  }
+  task.timers.forEach((t) => window.clearTimeout(t))
+  tasks.delete(taskId)
+}
+
 export function subscribe(taskId: string, listener: Listener, onError: (status?: number) => void): () => void {
   const task = tasks.get(taskId)
   if (!task || task.ownerId !== currentUserId()) {
